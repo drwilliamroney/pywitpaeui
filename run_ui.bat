@@ -13,6 +13,8 @@ call ".venv\Scripts\activate.bat"
 if errorlevel 1 goto :error
 
 echo Installing dependencies...
+python -m pip install --upgrade pip
+if errorlevel 1 goto :error
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :error
 
