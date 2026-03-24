@@ -96,13 +96,13 @@ class SaveTurnTracker:
         return False
 
     def _run_pwstool(self, side: str, pwstool_path: Path) -> None:
-        script_path = pwstool_path / "pywitpaescraper.py"
-        if not script_path.exists():
+        bat_path = pwstool_path / "run_scraper.bat"
+        if not bat_path.exists():
             self._set_pwstool_status(
                 "failed",
-                f"Missing script: {script_path}",
+                f"Missing launcher: {bat_path}",
             )
-            logger.warning("Post-turn pwstool script not found: %s", script_path)
+            logger.warning("Post-turn pwstool launcher not found: %s", bat_path)
             return
 
         if not self._wpae002.exists() or not self._wpae000.exists():
@@ -124,15 +124,8 @@ class SaveTurnTracker:
             except OSError:
                 continue
 
-        launcher_env = os.getenv("APP_PWSTOOL_PYTHON", "").strip()
-        if launcher_env:
-            launcher_parts = [launcher_env]
-        else:
-            launcher_parts = ["py", "-3-32"]
-
         command = [
-            *launcher_parts,
-            str(script_path),
+            "cmd", "/c", str(bat_path),
             "--dll-dir",
             str(self._game_path),
             "--start-of-day-file",
