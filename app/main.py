@@ -48,6 +48,8 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MAP_PATH = STATIC_DIR / "map.png"
 
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+
 app = FastAPI(title="UI")
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
