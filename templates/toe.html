@@ -1,0 +1,409 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .toe-page-title {
+    color: #d8ebfa;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: 0.02em;
+  }
+
+  .toe-region-card {
+    border: 1px solid #1c3144;
+    border-radius: 6px;
+    background: #0b1826;
+    padding: 0;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+
+  .toe-region-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-bottom: 1px solid #1a2d40;
+    color: #d7e9f8;
+    background: #0d1b2a;
+    font-weight: 600;
+    font-size: 0.86rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .toe-region-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .toe-region-summary::before {
+    content: "+";
+    margin-right: 6px;
+    color: #8aaec7;
+    font-weight: 700;
+  }
+
+  .toe-region-card[open] .toe-region-summary::before {
+    content: "-";
+  }
+
+  .toe-region-header {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-shrink: 0;
+    margin-right: auto;
+  }
+
+  .toe-region-name {
+    color: #e3f2ff;
+    font-weight: 600;
+    font-size: 0.9rem;
+  }
+
+  .toe-region-abbr {
+    color: #6f93ad;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .toe-region-counts {
+    color: #95b8d2;
+    font-size: 0.76rem;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .toe-region-body {
+    padding: 6px 8px 8px;
+  }
+
+  .toe-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    align-items: start;
+  }
+
+  .toe-col {
+    padding-right: 4px;
+  }
+
+  .toe-col + .toe-col {
+    border-left: 1px solid #173149;
+    padding-left: 8px;
+  }
+
+  .toe-col-header {
+    color: #9bb8cf;
+    font-size: 0.68rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid #173149;
+  }
+
+  .toe-col table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  .toe-col td {
+    padding: 2px 4px;
+    vertical-align: top;
+  }
+
+  .toe-col td.type-cell {
+    color: #c5ddf0;
+    width: 60%;
+  }
+
+  .toe-col td.count-cell {
+    color: #e8f5ff;
+    font-weight: 600;
+    text-align: right;
+    width: 40%;
+  }
+
+  .toe-col .empty-note {
+    color: #4a6678;
+    font-size: 0.74rem;
+    font-style: italic;
+    padding: 2px 0;
+  }
+
+  .toe-type-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .toe-type-item {
+    border: 1px solid #163047;
+    border-radius: 4px;
+    background: #0a1826;
+    overflow: hidden;
+  }
+
+  .toe-type-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 6px;
+    color: #c2d9eb;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .toe-type-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .toe-type-summary::before {
+    content: "+";
+    margin-right: 6px;
+    color: #84a8c1;
+    font-weight: 700;
+  }
+
+  .toe-type-item[open] .toe-type-summary::before {
+    content: "-";
+  }
+
+  .toe-type-label {
+    display: flex;
+    align-items: center;
+  }
+
+  .toe-type-inline-count {
+    color: #d9ecfb;
+    font-weight: 700;
+  }
+
+  .toe-type-total {
+    color: #d9ecfb;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .toe-nation-list {
+    border-top: 1px solid #1a2f43;
+    background: #091523;
+    margin-left: 12px;
+    border-left: 1px dotted #2d4f68;
+  }
+
+  .toe-nation-item {
+    border-bottom: 1px solid #102235;
+  }
+
+  .toe-nation-item:last-child {
+    border-bottom: 0;
+  }
+
+  .toe-nation-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    font-size: 0.74rem;
+    white-space: nowrap;
+  }
+
+  .toe-nation-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .toe-nation-summary::before {
+    content: "+";
+    margin-right: 5px;
+    color: #769fbe;
+    font-weight: 700;
+  }
+
+  .toe-nation-item[open] .toe-nation-summary::before {
+    content: "-";
+  }
+
+  .toe-nation-label {
+    color: #9ebbd2;
+    display: flex;
+    align-items: center;
+  }
+
+  .toe-nation-total {
+    color: #c6def1;
+    text-align: right;
+    font-weight: 600;
+  }
+
+  .toe-nation-inline-count {
+    color: #c6def1;
+    font-weight: 700;
+  }
+
+  .toe-base-list {
+    border-top: 1px solid #142b40;
+    background: #07111d;
+    margin-left: 12px;
+    border-left: 1px dotted #2b4a61;
+    padding: 2px 0;
+  }
+
+  .toe-base-item {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    font-size: 0.72rem;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+
+  .toe-base-item::before {
+    content: "•";
+    color: #5f8097;
+    flex-shrink: 0;
+  }
+
+  .toe-base-name {
+    color: #89acc6;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .toe-base-count {
+    color: #bad4e8;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .toe-nation-table td {
+    padding: 3px 8px;
+    font-size: 0.82rem;
+  }
+
+  .toe-nation-indent {
+    width: 18px;
+    color: #65839a;
+    text-align: center;
+  }
+
+  .toe-nation-name {
+    color: #a8c6dc;
+  }
+
+  .toe-nation-count {
+    color: #d5e9f8;
+    text-align: right;
+    font-weight: 600;
+  }
+
+  @media (max-width: 900px) {
+    .toe-columns {
+      grid-template-columns: 1fr;
+    }
+
+    .toe-col + .toe-col {
+      border-left: 0;
+      padding-left: 0;
+    }
+  }
+</style>
+
+{% macro render_type_breakdown(items) -%}
+  {% if items %}
+  <div class="toe-type-list">
+    {% for item in items %}
+    <details class="toe-type-item">
+      <summary class="toe-type-summary">
+        <span class="toe-type-label">{{ item.type }}:</span>
+        <span class="toe-type-inline-count">{{ item.count }}</span>
+      </summary>
+      {% if item.nations %}
+      <div class="toe-nation-list">
+        {% for nation in item.nations %}
+        <details class="toe-nation-item">
+          <summary class="toe-nation-summary">
+            <span class="toe-nation-label">{{ nation.nation }}:</span>
+            <span class="toe-nation-inline-count">{{ nation.count }}</span>
+          </summary>
+          {% if nation.bases %}
+          <div class="toe-base-list">
+            {% for base in nation.bases %}
+            <div class="toe-base-item">
+              <span class="toe-base-name">{{ base.base }}:</span>
+              <span class="toe-base-count">{{ base.count }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </details>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </details>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-note">—</div>
+  {% endif %}
+{%- endmacro %}
+
+<h1 class="toe-page-title">Table of Equipment</h1>
+
+{% if not regions %}
+<p style="color:#7799b4; font-size:0.95rem;">No TOE data available.</p>
+{% else %}
+{% for region in regions %}
+<details class="toe-region-card">
+  <summary class="toe-region-summary">
+    <span class="toe-region-header">
+      <span class="toe-region-name">{{ region.name }}</span>
+      <span class="toe-region-abbr">{{ region.abbr }}</span>
+    </span>
+    <span class="toe-region-counts">{{ region.ships | sum(attribute='count') }} Ships, {{ region.airgroups | sum(attribute='count') }} Airgroups, {{ region.ground | sum(attribute='count') }} Ground Units</span>
+  </summary>
+  <div class="toe-region-body">
+  <div class="toe-columns">
+
+    <!-- Ships -->
+    <div class="toe-col">
+      <div class="toe-col-header">Ships</div>
+      {{ render_type_breakdown(region.ships) }}
+    </div>
+
+    <!-- Airgroups -->
+    <div class="toe-col">
+      <div class="toe-col-header">Airgroups</div>
+      {{ render_type_breakdown(region.airgroups) }}
+    </div>
+
+    <!-- Ground Forces -->
+    <div class="toe-col">
+      <div class="toe-col-header">Ground Forces</div>
+      {{ render_type_breakdown(region.ground) }}
+    </div>
+
+  </div>
+  </div>
+</details>
+{% endfor %}
+{% endif %}
+{% endblock %}

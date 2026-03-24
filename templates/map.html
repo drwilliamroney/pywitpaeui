@@ -1,0 +1,1015 @@
+{% extends "base.html" %}
+{% block content %}
+{% set placeholder_mode = map_mode in ["logistics", "sea", "land", "air", "operations"] %}
+<style>
+  #minimapCanvas {
+    box-shadow: 0 0 0 1px rgba(115, 182, 230, 0.35), 0 6px 16px rgba(0, 0, 0, 0.45);
+    animation: minimapPulse 2.6s ease-in-out infinite;
+  }
+  #minimapCanvas:hover {
+    box-shadow: 0 0 0 1px rgba(143, 210, 255, 0.55), 0 8px 20px rgba(0, 0, 0, 0.52);
+  }
+  @keyframes minimapPulse {
+    0%, 100% { filter: brightness(1); }
+    50%       { filter: brightness(1.08); }
+  }
+  #overlayLegend {
+    position: absolute;
+    right: 10px;
+    border: 1px solid #3b5a72;
+    border-radius: 4px;
+    background: rgba(8,17,26,0.92);
+    color: #d9ecfb;
+    display: none;
+    z-index: 1001;
+    box-shadow: 0 0 0 1px rgba(115, 182, 230, 0.18), 0 6px 16px rgba(0, 0, 0, 0.45);
+    overflow: auto;
+    padding: 8px;
+    box-sizing: border-box;
+  }
+  .legend-title {
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #9ac7ea;
+    margin-bottom: 8px;
+  }
+  .legend-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  .legend-item {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 8px;
+    align-items: center;
+    min-height: 24px;
+  }
+  .legend-label {
+    font-size: 0.74rem;
+    line-height: 1.2;
+    color: #d9ecfb;
+  }
+  .legend-icon {
+    position: relative;
+    width: 24px;
+    height: 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .legend-icon-circle::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--legend-fill, rgba(255,255,255,0.28));
+    border: 2px solid var(--legend-stroke, rgba(255,255,255,0.92));
+    box-sizing: border-box;
+  }
+  .legend-icon-ring::before {
+    content: "";
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: transparent;
+    border: 2px solid var(--legend-stroke, rgba(255,255,255,0.92));
+    box-sizing: border-box;
+  }
+  .legend-icon-square::before {
+    content: "";
+    width: 16px;
+    height: 16px;
+    background: var(--legend-fill, rgba(255,255,255,0.24));
+    border: 2px solid var(--legend-stroke, rgba(255,255,255,0.92));
+    box-sizing: border-box;
+    transform: rotate(45deg);
+  }
+  .legend-icon-cross::before,
+  .legend-icon-cross::after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 2px;
+    background: var(--legend-stroke, rgba(255,255,255,0.92));
+    border-radius: 999px;
+  }
+  .legend-icon-cross::before { transform: rotate(45deg); }
+  .legend-icon-cross::after  { transform: rotate(-45deg); }
+  .legend-icon-line::before,
+  .legend-icon-line::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 11px;
+    height: 2px;
+    border-radius: 999px;
+  }
+  .legend-icon-line::before {
+    background: var(--legend-stroke, rgba(255,255,255,0.92));
+  }
+  .legend-icon-line-dashed::before,
+  .legend-icon-line-dashed::after {
+    content: "";
+    position: absolute;
+    left: 2px;
+    right: 2px;
+    top: 11px;
+    height: 2px;
+    border-radius: 999px;
+  }
+  .legend-icon-line-dashed::before {
+    background: linear-gradient(to right, var(--legend-stroke, rgba(255,255,255,0.92)) 0 35%, transparent 35% 55%, var(--legend-stroke, rgba(255,255,255,0.92)) 55% 90%, transparent 90% 100%);
+  }
+  .legend-icon-star::before {
+    content: "★";
+    font-size: 20px;
+    line-height: 1;
+    color: var(--legend-stroke, rgba(255,255,255,0.96));
+    text-shadow: 0 0 1px rgba(0,0,0,0.4);
+  }
+</style>
+
+<div style="display:flex; gap:12px; align-items:center; margin-bottom:10px; color:#c8d9e8; font-size:0.95rem;">
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkRegions"       type="checkbox" checked> Theater regions</label>
+  {% if map_mode == "logistics" %}
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkBaseSupply" type="checkbox" checked> Base Supply</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkLogisticsTaskforces" type="checkbox" checked> Logistics TaskForces</label>
+  <input id="chkHqOverlay" type="checkbox" hidden>
+  <input id="chkAreaCommandOverlay" type="checkbox" hidden>
+  <input id="chkAirSearchOverlay" type="checkbox" hidden>
+  <input id="chkAirAswOverlay" type="checkbox" hidden>
+  <input id="chkAirAttackOverlay" type="checkbox" hidden>
+  <input id="chkAirHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkMinefieldsOverlay" type="checkbox" hidden>
+  <input id="chkLandUnitHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandPlanningOverlay" type="checkbox" hidden>
+  <input id="chkInvasions" type="checkbox" hidden>
+  <input id="chkTaskforces" type="checkbox" hidden>
+  <input id="chkSubpatrols" type="checkbox" hidden>
+  <input id="chkThreatSubs" type="checkbox" hidden>
+  <input id="chkThreatSurface" type="checkbox" hidden>
+  <input id="chkThreatCarrier" type="checkbox" hidden>
+  <input id="chkThreatAreas" type="checkbox" hidden>
+  {% elif map_mode == "sea" %}
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkHqOverlay" type="checkbox" checked> HQ Overlay</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkMinefieldsOverlay" type="checkbox" checked> Minefields</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatSubs" type="checkbox" checked> Sub Threats</label>
+  <input id="chkAreaCommandOverlay" type="checkbox" hidden>
+  <input id="chkAirSearchOverlay" type="checkbox" hidden>
+  <input id="chkAirAswOverlay" type="checkbox" hidden>
+  <input id="chkAirAttackOverlay" type="checkbox" hidden>
+  <input id="chkAirHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkBaseSupply" type="checkbox" hidden>
+  <input id="chkLogisticsTaskforces" type="checkbox" hidden>
+  <input id="chkLandUnitHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandPlanningOverlay" type="checkbox" hidden>
+  <input id="chkInvasions" type="checkbox" hidden>
+  <input id="chkTaskforces" type="checkbox" hidden>
+  <input id="chkSubpatrols" type="checkbox" hidden>
+  <input id="chkThreatSurface" type="checkbox" hidden>
+  <input id="chkThreatCarrier" type="checkbox" hidden>
+  <input id="chkThreatAreas" type="checkbox" hidden>
+  {% elif map_mode == "air" %}
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkHqOverlay" type="checkbox" checked> HQ Overlay</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAreaCommandOverlay" type="checkbox" checked> Area Command</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirSearchOverlay" type="checkbox" checked> Search</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirAswOverlay" type="checkbox" checked> ASW</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirAttackOverlay" type="checkbox" checked> Attack Range</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirHqLinkOverlay" type="checkbox" checked> Airgroup HQ Links</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatSubs" type="checkbox" checked> Sub Threats</label>
+  <input id="chkBaseSupply" type="checkbox" hidden>
+  <input id="chkLogisticsTaskforces" type="checkbox" hidden>
+  <input id="chkLandUnitHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandPlanningOverlay" type="checkbox" hidden>
+  <input id="chkInvasions" type="checkbox" hidden>
+  <input id="chkTaskforces" type="checkbox" hidden>
+  <input id="chkSubpatrols" type="checkbox" hidden>
+  <input id="chkThreatSurface" type="checkbox" hidden>
+  <input id="chkThreatCarrier" type="checkbox" hidden>
+  <input id="chkThreatAreas" type="checkbox" hidden>
+  <input id="chkMinefieldsOverlay" type="checkbox" hidden>
+  {% elif map_mode == "land" %}
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkHqOverlay" type="checkbox" checked> HQ Overlay</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAreaCommandOverlay" type="checkbox" checked> Area Command</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkLandUnitHqLinkOverlay" type="checkbox" checked> UnitHQLink</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkLandPlanningOverlay" type="checkbox" checked> Planning</label>
+  <input id="chkAirSearchOverlay" type="checkbox" hidden>
+  <input id="chkAirAswOverlay" type="checkbox" hidden>
+  <input id="chkAirAttackOverlay" type="checkbox" hidden>
+  <input id="chkAirHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkBaseSupply" type="checkbox" hidden>
+  <input id="chkLogisticsTaskforces" type="checkbox" hidden>
+  <input id="chkTaskforces" type="checkbox" hidden>
+  <input id="chkSubpatrols" type="checkbox" hidden>
+  <input id="chkThreatSubs" type="checkbox" hidden>
+  <input id="chkThreatSurface" type="checkbox" hidden>
+  <input id="chkThreatCarrier" type="checkbox" hidden>
+  <input id="chkThreatAreas" type="checkbox" hidden>
+  <input id="chkMinefieldsOverlay" type="checkbox" hidden>
+  <input id="chkInvasions" type="checkbox" hidden>
+  {% elif placeholder_mode %}
+  <input id="chkHqOverlay" type="checkbox" hidden>
+  <input id="chkAreaCommandOverlay" type="checkbox" hidden>
+  <input id="chkAirSearchOverlay" type="checkbox" hidden>
+  <input id="chkAirAswOverlay" type="checkbox" hidden>
+  <input id="chkAirAttackOverlay" type="checkbox" hidden>
+  <input id="chkAirHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandUnitHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandPlanningOverlay" type="checkbox" hidden>
+  <input id="chkBaseSupply" type="checkbox" hidden>
+  <input id="chkLogisticsTaskforces" type="checkbox" hidden>
+  <input id="chkTaskforces" type="checkbox" hidden>
+  <input id="chkSubpatrols" type="checkbox" hidden>
+  <input id="chkThreatSubs" type="checkbox" hidden>
+  <input id="chkThreatSurface" type="checkbox" hidden>
+  <input id="chkThreatCarrier" type="checkbox" hidden>
+  <input id="chkThreatAreas" type="checkbox" hidden>
+  <input id="chkMinefieldsOverlay" type="checkbox" hidden>
+  <input id="chkInvasions" type="checkbox" hidden>
+  {% else %}
+  <input id="chkHqOverlay" type="checkbox" hidden>
+  <input id="chkAreaCommandOverlay" type="checkbox" hidden>
+  <input id="chkAirSearchOverlay" type="checkbox" hidden>
+  <input id="chkAirAswOverlay" type="checkbox" hidden>
+  <input id="chkAirAttackOverlay" type="checkbox" hidden>
+  <input id="chkAirHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandUnitHqLinkOverlay" type="checkbox" hidden>
+  <input id="chkLandPlanningOverlay" type="checkbox" hidden>
+  <input id="chkBaseSupply" type="checkbox" hidden>
+  <input id="chkLogisticsTaskforces" type="checkbox" hidden>
+  <input id="chkMinefieldsOverlay" type="checkbox" hidden>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkInvasions"     type="checkbox" checked> Invasions</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkTaskforces"    type="checkbox" checked> Taskforces</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkSubpatrols"    type="checkbox" checked> Subpatrols</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatSubs"    type="checkbox" checked> Sub threats</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatSurface" type="checkbox" checked> Surface threats</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatCarrier" type="checkbox" checked> Carrier threats</label>
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkThreatAreas"   type="checkbox" checked> Threat areas</label>
+  {% endif %}
+  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkScale"         type="checkbox" checked> Scale map to window</label>
+  {% if not map_available %}
+  <span style="color:#f2bd85;">Map tiles not found in ART, showing placeholder map.</span>
+  {% endif %}
+</div>
+
+<div id="mapContainer" style="position:relative; max-width:100%;">
+  <div id="mapViewport" style="overflow:hidden; max-width:100%; max-height:calc(100vh - 170px); border:1px solid #28435a; border-radius:10px; background:#071018;">
+    <div id="mapStack" style="position:relative; display:inline-block; line-height:0;">
+      <img id="mapImage"          src="/static/map.png?v={{ render_version }}"              alt="WITPAE map" style="display:block;position:relative;z-index:1;width:100%;height:100%;">
+      <img id="regionsOverlay"    src="/api/overlays/regions.svg?v={{ render_version }}"    alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:10;pointer-events:none;display:none;">
+      {% if map_mode == "logistics" %}
+      <img id="baseSupplyOverlay" src="/api/overlays/base-supply.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
+      <img id="logisticsTaskforcesOverlay" src="/api/overlays/logistics-taskforces.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
+      {% elif map_mode == "sea" %}
+      <img id="hqOverlay" src="/api/overlays/{{ map_mode }}-hq.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
+      <img id="minefieldsOverlay" src="/api/overlays/sea-minefields.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:23;pointer-events:none;display:none;">
+      <img id="threatSubOverlay" src="/api/overlays/threats-sub.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:25;pointer-events:none;display:none;">
+      {% elif map_mode == "air" %}
+      <img id="areaCommandOverlay" src="/api/overlays/{{ map_mode }}-area-command.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
+      <img id="airSearchOverlay" src="/api/overlays/air-search.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:24;pointer-events:none;display:none;">
+      <img id="airAswOverlay" src="/api/overlays/air-asw.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:27;pointer-events:none;display:none;">
+      <img id="airAttackOverlay" src="/api/overlays/air-attack.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:28;pointer-events:none;display:none;">
+      <img id="airHqLinkOverlay" src="/api/overlays/air-hq-link.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:29;pointer-events:none;display:none;">
+      <img id="threatSubOverlay" src="/api/overlays/threats-sub.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:29;pointer-events:none;display:none;">
+      <img id="hqOverlay" src="/api/overlays/{{ map_mode }}-hq.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
+      {% elif map_mode == "land" %}
+      <img id="areaCommandOverlay" src="/api/overlays/{{ map_mode }}-area-command.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
+      <img id="landUnitHqLinkOverlay" src="/api/overlays/land-unit-hq-link.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:24;pointer-events:none;display:none;">
+      <img id="landPlanningOverlay" src="/api/overlays/land-planning.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:27;pointer-events:none;display:none;">
+      <img id="hqOverlay" src="/api/overlays/{{ map_mode }}-hq.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
+      {% elif not placeholder_mode %}
+      <img id="invasionsOverlay" src="/api/overlays/invasions.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:25;pointer-events:none;display:none;">
+      <img id="taskforcesOverlay" src="/api/overlays/taskforces.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
+      <img id="subpatrolsOverlay" src="/api/overlays/subpatrols.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
+      <img id="threatSubOverlay"    src="/api/overlays/threats-sub.svg?v={{ render_version }}"    alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:40;pointer-events:none;display:none;">
+      <img id="threatSurfaceOverlay" src="/api/overlays/threats-surface.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:41;pointer-events:none;display:none;">
+      <img id="threatCarrierOverlay" src="/api/overlays/threats-carrier.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:42;pointer-events:none;display:none;">
+      <img id="threatAreasOverlay" src="/api/overlays/threats-areas.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:43;pointer-events:none;display:none;">
+      {% endif %}
+    </div>
+  </div>
+  <div id="overlayLegend" aria-label="Overlay legend"></div>
+  <canvas id="minimapCanvas" style="position:absolute;bottom:10px;right:10px;border:1px solid #3b5a72;border-radius:4px;background:rgba(8,17,26,0.9);display:none;cursor:pointer;z-index:1000;"></canvas>
+</div>
+<div id="mapTooltip" style="position:fixed;display:none;max-width:320px;padding:8px 10px;border:1px solid #3b5a72;border-radius:8px;background:rgba(8,17,26,0.95);color:#d9ecfb;font-size:0.84rem;line-height:1.35;pointer-events:none;z-index:1200;box-shadow:0 4px 14px rgba(0,0,0,0.35);"></div>
+
+<script>
+  // Coordinate constants for gamehex->pixel conversion (hover hit-testing only).
+  // Formula: pixel = (hex - 1) * (map_size / (hex_count - 1))  — no offsets.
+  const HEX_COLS = 232;
+  const HEX_ROWS = 205;
+  const mapMode = {{ map_mode|tojson }};
+  const placeholderMode = {{ "true" if placeholder_mode else "false" }};
+  const logisticsMode = {{ "true" if map_mode == "logistics" else "false" }};
+  const hqMode = {{ "true" if map_mode in ["sea", "air", "land"] else "false" }};
+  const areaCommandMode = {{ "true" if map_mode in ["air", "land"] else "false" }};
+  const airMissionMode = {{ "true" if map_mode == "air" else "false" }};
+  const subThreatMode = {{ "true" if map_mode in ["sea", "air"] else "false" }};
+
+  const mapContainer      = document.getElementById("mapContainer");
+  const mapViewport       = document.getElementById("mapViewport");
+  const mapStack          = document.getElementById("mapStack");
+  const mapImage          = document.getElementById("mapImage");
+  const regionsOverlay    = document.getElementById("regionsOverlay");
+  const baseSupplyOverlay = document.getElementById("baseSupplyOverlay");
+  const logisticsTaskforcesOverlay = document.getElementById("logisticsTaskforcesOverlay");
+  const areaCommandOverlay = document.getElementById("areaCommandOverlay");
+  const airSearchOverlay  = document.getElementById("airSearchOverlay");
+  const airAswOverlay     = document.getElementById("airAswOverlay");
+  const airAttackOverlay  = document.getElementById("airAttackOverlay");
+  const airHqLinkOverlay  = document.getElementById("airHqLinkOverlay");
+  const minefieldsOverlay = document.getElementById("minefieldsOverlay");
+  const hqOverlay         = document.getElementById("hqOverlay");
+  const landUnitHqLinkOverlay = document.getElementById("landUnitHqLinkOverlay");
+  const landPlanningOverlay = document.getElementById("landPlanningOverlay");
+  const invasionsOverlay  = document.getElementById("invasionsOverlay");
+  const taskforcesOverlay = document.getElementById("taskforcesOverlay");
+  const subpatrolsOverlay = document.getElementById("subpatrolsOverlay");
+  const threatSubOverlay  = document.getElementById("threatSubOverlay");
+  const threatSurfaceOverlay = document.getElementById("threatSurfaceOverlay");
+  const threatCarrierOverlay = document.getElementById("threatCarrierOverlay");
+  const threatAreasOverlay = document.getElementById("threatAreasOverlay");
+  const overlayLegend     = document.getElementById("overlayLegend");
+  const minimapCanvas     = document.getElementById("minimapCanvas");
+  const mapTooltip        = document.getElementById("mapTooltip");
+  const chkRegions        = document.getElementById("chkRegions");
+  const chkBaseSupply     = document.getElementById("chkBaseSupply");
+  const chkLogisticsTaskforces = document.getElementById("chkLogisticsTaskforces");
+  const chkAreaCommandOverlay = document.getElementById("chkAreaCommandOverlay");
+  const chkAirSearchOverlay = document.getElementById("chkAirSearchOverlay");
+  const chkAirAswOverlay = document.getElementById("chkAirAswOverlay");
+  const chkAirAttackOverlay = document.getElementById("chkAirAttackOverlay");
+  const chkAirHqLinkOverlay = document.getElementById("chkAirHqLinkOverlay");
+  const chkMinefieldsOverlay = document.getElementById("chkMinefieldsOverlay");
+  const chkHqOverlay      = document.getElementById("chkHqOverlay");
+  const chkLandUnitHqLinkOverlay = document.getElementById("chkLandUnitHqLinkOverlay");
+  const chkLandPlanningOverlay = document.getElementById("chkLandPlanningOverlay");
+  const chkInvasions      = document.getElementById("chkInvasions");
+  const chkTaskforces     = document.getElementById("chkTaskforces");
+  const chkSubpatrols     = document.getElementById("chkSubpatrols");
+  const chkThreatSubs     = document.getElementById("chkThreatSubs");
+  const chkThreatSurface  = document.getElementById("chkThreatSurface");
+  const chkThreatCarrier  = document.getElementById("chkThreatCarrier");
+  const chkThreatAreas    = document.getElementById("chkThreatAreas");
+  const chkScale          = document.getElementById("chkScale");
+
+  // JSON data used only for hover hit-testing (not rendering)
+  let regionsData    = null;
+  let baseSupplyData = null;
+  let logisticsTaskforcesData = null;
+  let areaCommandData = null;
+  let airSearchData  = null;
+  let airAswData     = null;
+  let airAttackData  = null;
+  let airHqLinkData  = null;
+  let minefieldsData = null;
+  let hqData         = null;
+  let landUnitHqLinkData = null;
+  let landPlanningData = null;
+  let invasionsData  = null;
+  let taskforcesData = null;
+  let subpatrolsData = null;
+  let threatsData    = null;
+
+  function updateOverlayVisibility() {
+    regionsOverlay.style.display = chkRegions.checked ? "block" : "none";
+    if (baseSupplyOverlay) {
+      baseSupplyOverlay.style.display = chkBaseSupply.checked ? "block" : "none";
+    }
+    if (logisticsTaskforcesOverlay) {
+      logisticsTaskforcesOverlay.style.display = chkLogisticsTaskforces.checked ? "block" : "none";
+    }
+    if (areaCommandOverlay) {
+      areaCommandOverlay.style.display = chkAreaCommandOverlay.checked ? "block" : "none";
+    }
+    if (airSearchOverlay) {
+      airSearchOverlay.style.display = chkAirSearchOverlay.checked ? "block" : "none";
+    }
+    if (airAswOverlay) {
+      airAswOverlay.style.display = chkAirAswOverlay.checked ? "block" : "none";
+    }
+    if (airAttackOverlay) {
+      airAttackOverlay.style.display = chkAirAttackOverlay.checked ? "block" : "none";
+    }
+    if (airHqLinkOverlay) {
+      airHqLinkOverlay.style.display = chkAirHqLinkOverlay.checked ? "block" : "none";
+    }
+    if (minefieldsOverlay) {
+      minefieldsOverlay.style.display = chkMinefieldsOverlay.checked ? "block" : "none";
+    }
+    if (hqOverlay) {
+      hqOverlay.style.display = chkHqOverlay.checked ? "block" : "none";
+    }
+    if (landUnitHqLinkOverlay) {
+      landUnitHqLinkOverlay.style.display = chkLandUnitHqLinkOverlay.checked ? "block" : "none";
+    }
+    if (landPlanningOverlay) {
+      landPlanningOverlay.style.display = chkLandPlanningOverlay.checked ? "block" : "none";
+    }
+    if (invasionsOverlay) {
+      invasionsOverlay.style.display = chkInvasions.checked ? "block" : "none";
+    }
+    if (taskforcesOverlay) {
+      taskforcesOverlay.style.display = chkTaskforces.checked ? "block" : "none";
+    }
+    if (subpatrolsOverlay) {
+      subpatrolsOverlay.style.display = chkSubpatrols.checked ? "block" : "none";
+    }
+    if (threatSubOverlay) {
+      threatSubOverlay.style.display = chkThreatSubs.checked ? "block" : "none";
+    }
+    if (threatSurfaceOverlay) {
+      threatSurfaceOverlay.style.display = chkThreatSurface.checked ? "block" : "none";
+    }
+    if (threatCarrierOverlay) {
+      threatCarrierOverlay.style.display = chkThreatCarrier.checked ? "block" : "none";
+    }
+    if (threatAreasOverlay) {
+      threatAreasOverlay.style.display = chkThreatAreas.checked ? "block" : "none";
+    }
+  }
+
+  // ── Map fit / zoom ────────────────────────────────────────────────────────
+  function fitMapToWindow() {
+    if (!mapImage.naturalWidth || !mapImage.naturalHeight) return;
+    if (!chkScale.checked) {
+      mapViewport.style.overflow = "auto";
+      mapStack.style.width  = mapImage.naturalWidth + "px";
+      mapStack.style.height = mapImage.naturalHeight + "px";
+    } else {
+      const scale = Math.min(
+        mapViewport.clientWidth  / mapImage.naturalWidth,
+        mapViewport.clientHeight / mapImage.naturalHeight
+      );
+      mapViewport.style.overflow = "hidden";
+      mapStack.style.width  = Math.round(mapImage.naturalWidth  * scale) + "px";
+      mapStack.style.height = Math.round(mapImage.naturalHeight * scale) + "px";
+    }
+    updateMinimapDisplay();
+  }
+
+  // ── Minimap ───────────────────────────────────────────────────────────────
+  function updateMinimapDisplay() {
+    minimapCanvas.style.display = "block";
+    const maxSide = Math.max(100, Math.min(mapContainer.clientWidth, mapViewport.clientHeight) * 0.30);
+    const aspect  = mapImage.naturalWidth / mapImage.naturalHeight;
+    if (aspect >= 1) {
+      minimapCanvas.width  = Math.round(maxSide);
+      minimapCanvas.height = Math.round(maxSide / aspect);
+    } else {
+      minimapCanvas.height = Math.round(maxSide);
+      minimapCanvas.width  = Math.round(maxSide * aspect);
+    }
+    updateOverlayLegendDisplay();
+    drawMinimap();
+  }
+
+  function legendItem(iconClass, label, styles = {}) {
+    const styleText = Object.entries(styles).map(([key, value]) => `${key}: ${value}`).join("; ");
+    return `<div class="legend-item"><span class="legend-icon ${iconClass}" style="${styleText}"></span><span class="legend-label">${label}</span></div>`;
+  }
+
+  function getLegendEntries() {
+    const entries = [legendItem("legend-icon-square", "Theater regions", {"--legend-fill": "rgba(100,149,237,0.25)", "--legend-stroke": "rgba(100,149,237,0.75)"})];
+
+    if (logisticsMode) {
+      entries.push(legendItem("legend-icon-circle", "Base Supply: healthy", {"--legend-fill": "rgba(64,220,96,0.92)", "--legend-stroke": "rgba(24,120,44,1)"}));
+      entries.push(legendItem("legend-icon-circle", "Base Supply: strained", {"--legend-fill": "rgba(255,220,60,0.92)", "--legend-stroke": "rgba(165,130,10,1)"}));
+      entries.push(legendItem("legend-icon-circle", "Base Supply: low", {"--legend-fill": "rgba(238,78,78,0.92)", "--legend-stroke": "rgba(150,20,20,1)"}));
+      entries.push(legendItem("legend-icon-star", "Base Supply: surplus", {"--legend-stroke": "rgba(255,215,0,0.96)"}));
+      entries.push(legendItem("legend-icon-line", "Logistics TaskForce path", {"--legend-stroke": "rgba(255,165,0,1)"}));
+      return entries;
+    }
+
+    if (mapMode === "sea") {
+      entries.push(legendItem("legend-icon-ring", "HQ coverage", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
+      entries.push(legendItem("legend-icon-cross", "Minefields", {"--legend-stroke": "rgba(0,0,0,0.96)"}));
+      entries.push(legendItem("legend-icon-circle", "Sub threats", {"--legend-fill": "rgba(255,70,70,0.32)", "--legend-stroke": "rgba(255,70,70,0.92)"}));
+      return entries;
+    }
+
+    if (mapMode === "air") {
+      entries.push(legendItem("legend-icon-ring", "HQ coverage", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
+      entries.push(legendItem("legend-icon-square", "Area command", {"--legend-fill": "rgba(46,132,69,0.18)", "--legend-stroke": "rgba(98,220,120,0.78)"}));
+      entries.push(legendItem("legend-icon-ring", "Search sector", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
+      entries.push(legendItem("legend-icon-ring", "ASW sector", {"--legend-stroke": "rgba(255,126,185,0.96)"}));
+      entries.push(legendItem("legend-icon-ring", "Attack range", {"--legend-stroke": "rgba(255,210,80,0.95)"}));
+      entries.push(legendItem("legend-icon-line-dashed", "Airgroup HQ link", {"--legend-stroke": "rgba(255,220,60,0.98)"}));
+      entries.push(legendItem("legend-icon-circle", "Sub threats", {"--legend-fill": "rgba(255,70,70,0.32)", "--legend-stroke": "rgba(255,70,70,0.92)"}));
+      return entries;
+    }
+
+    if (mapMode === "land") {
+      entries.push(legendItem("legend-icon-ring", "HQ coverage", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
+      entries.push(legendItem("legend-icon-square", "Area command", {"--legend-fill": "rgba(46,132,69,0.18)", "--legend-stroke": "rgba(98,220,120,0.78)"}));
+      entries.push(legendItem("legend-icon-line-dashed", "Unit HQ link", {"--legend-stroke": "rgba(255,220,60,0.98)"}));
+      entries.push(legendItem("legend-icon-line-dashed", "Planning path", {"--legend-stroke": "rgba(255,190,90,0.98)"}));
+      return entries;
+    }
+
+    if (!placeholderMode) {
+      entries.push(legendItem("legend-icon-star", "Invasions", {"--legend-stroke": "rgba(255,255,255,0.96)"}));
+      entries.push(legendItem("legend-icon-line", "Taskforces", {"--legend-stroke": "rgba(255,165,0,1)"}));
+      entries.push(legendItem("legend-icon-ring", "Subpatrols", {"--legend-stroke": "rgba(100,255,100,0.95)"}));
+      entries.push(legendItem("legend-icon-circle", "Sub threats", {"--legend-fill": "rgba(255,70,70,0.32)", "--legend-stroke": "rgba(255,70,70,0.92)"}));
+      entries.push(legendItem("legend-icon-circle", "Surface threats", {"--legend-fill": "rgba(255,220,60,0.30)", "--legend-stroke": "rgba(255,220,60,0.94)"}));
+      entries.push(legendItem("legend-icon-circle", "Carrier threats", {"--legend-fill": "rgba(120,205,255,0.30)", "--legend-stroke": "rgba(120,205,255,0.96)"}));
+      entries.push(legendItem("legend-icon-cross", "Threat areas", {"--legend-stroke": "rgba(220,90,90,0.95)"}));
+    }
+
+    return entries;
+  }
+
+  function updateOverlayLegendDisplay() {
+    if (!overlayLegend) return;
+    overlayLegend.style.display = "block";
+    overlayLegend.style.width = `${minimapCanvas.width}px`;
+    overlayLegend.style.height = `${minimapCanvas.height}px`;
+    overlayLegend.style.bottom = `${minimapCanvas.height + 20}px`;
+    overlayLegend.innerHTML = `<div class="legend-title">Overlay Legend</div><div class="legend-grid">${getLegendEntries().join("")}</div>`;
+  }
+
+  function drawMinimap() {
+    const ctx = minimapCanvas.getContext("2d");
+    ctx.clearRect(0, 0, minimapCanvas.width, minimapCanvas.height);
+    if (!mapImage.naturalWidth) return;
+    ctx.drawImage(mapImage, 0, 0, minimapCanvas.width, minimapCanvas.height);
+    ctx.strokeStyle = "rgba(100,200,255,0.8)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    if (chkScale.checked) {
+      if (!mapImage.offsetWidth) return;
+      ctx.rect(0, 0,
+        mapViewport.clientWidth  * minimapCanvas.width  / mapImage.offsetWidth,
+        mapViewport.clientHeight * minimapCanvas.height / mapImage.offsetHeight
+      );
+    } else {
+      const sx = minimapCanvas.width  / mapStack.offsetWidth;
+      const sy = minimapCanvas.height / mapStack.offsetHeight;
+      ctx.rect(mapViewport.scrollLeft * sx, mapViewport.scrollTop * sy,
+               mapViewport.clientWidth * sx, mapViewport.clientHeight * sy);
+    }
+    ctx.stroke();
+  }
+
+  function centerMapOnNaturalPoint(mapX, mapY) {
+    mapViewport.scrollLeft = Math.max(0, Math.min(mapX - mapViewport.clientWidth  / 2, mapStack.offsetWidth  - mapViewport.clientWidth));
+    mapViewport.scrollTop  = Math.max(0, Math.min(mapY - mapViewport.clientHeight / 2, mapStack.offsetHeight - mapViewport.clientHeight));
+    drawMinimap();
+  }
+
+  function handleMinimapClick(event) {
+    const rect = minimapCanvas.getBoundingClientRect();
+    const x = Math.max(0, Math.min(rect.width,  event.clientX - rect.left));
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    const mapX = x / minimapCanvas.width  * mapImage.naturalWidth;
+    const mapY = y / minimapCanvas.height * mapImage.naturalHeight;
+    if (chkScale.checked) {
+      chkScale.checked = false;
+      chkScale.dispatchEvent(new Event("change"));
+      setTimeout(() => centerMapOnNaturalPoint(mapX, mapY), 0);
+    } else {
+      centerMapOnNaturalPoint(mapX, mapY);
+    }
+  }
+
+  function handleMainMapClick(event) {
+    if (!chkScale.checked || !mapImage.offsetWidth) return;
+    const rect = mapImage.getBoundingClientRect();
+    const mapX = ((event.clientX - rect.left) / rect.width)  * mapImage.naturalWidth;
+    const mapY = ((event.clientY - rect.top)  / rect.height) * mapImage.naturalHeight;
+    chkScale.checked = false;
+    chkScale.dispatchEvent(new Event("change"));
+    setTimeout(() => centerMapOnNaturalPoint(mapX, mapY), 0);
+  }
+
+  function handleMainMapContextMenu(event) {
+    const zoomed = !chkScale.checked && (mapImage.offsetWidth > mapViewport.clientWidth || mapImage.offsetHeight > mapViewport.clientHeight);
+    if (!zoomed) return;
+    event.preventDefault();
+    hideTooltip();
+    chkScale.checked = true;
+    chkScale.dispatchEvent(new Event("change"));
+  }
+
+  // ── Hover / tooltip ───────────────────────────────────────────────────────
+  // Convert mouse display-space coords to a display-space point for a given hex.
+  // Uses the same formula as the backend renderer — only for hit-testing.
+  // Alignment contract (do not change):
+  // - gameHexToDisplayPixel is top-left and must stay that way for region polygons.
+  // - gameHexToDisplayPixelCenter is half-step centered for point-on-hex overlays.
+  // Any changes here must be mirrored in backend transform logic.
+  function gameHexToDisplayPixel(gameHexX, gameHexY) {
+    const stepX = mapImage.naturalWidth  / (HEX_COLS - 1);
+    const stepY = mapImage.naturalHeight / (HEX_ROWS - 1);
+    const scaleX = mapImage.offsetWidth  / mapImage.naturalWidth;
+    const scaleY = mapImage.offsetHeight / mapImage.naturalHeight;
+    return {
+      x: (gameHexX - 1) * stepX * scaleX,
+      y: (gameHexY - 1) * stepY * scaleY,
+    };
+  }
+
+  function gameHexToDisplayPixelCenter(gameHexX, gameHexY) {
+    const stepX = mapImage.naturalWidth  / (HEX_COLS - 1);
+    const stepY = mapImage.naturalHeight / (HEX_ROWS - 1);
+    const scaleX = mapImage.offsetWidth  / mapImage.naturalWidth;
+    const scaleY = mapImage.offsetHeight / mapImage.naturalHeight;
+    return {
+      x: ((gameHexX - 1) * stepX + stepX / 2) * scaleX,
+      y: ((gameHexY - 1) * stepY + stepY / 2) * scaleY,
+    };
+  }
+
+  function hexRadiusDisplay(radius_hexes) {
+    const ppx = mapImage.naturalWidth / (HEX_COLS - 1);
+    const ppy = mapImage.naturalHeight / (HEX_ROWS - 1);
+    const scale = (mapImage.offsetWidth / mapImage.naturalWidth + mapImage.offsetHeight / mapImage.naturalHeight) / 2;
+    return radius_hexes * ((ppx + ppy) / 2) * scale;
+  }
+
+  function baseSupplyRadiusDisplay(markerShape) {
+    const naturalRadius = markerShape === "star" ? 50.0 : 25.0;
+    const scale = (mapImage.offsetWidth / mapImage.naturalWidth + mapImage.offsetHeight / mapImage.naturalHeight) / 2;
+    return naturalRadius * scale;
+  }
+
+  function invasionRadiusDisplay() {
+    return hexRadiusDisplay(2.5);
+  }
+
+  function normalizeBearingDegrees(value) {
+    let degrees = Number(value) || 0;
+    degrees = degrees % 360;
+    if (degrees < 0) degrees += 360;
+    return degrees;
+  }
+
+  function displayPointToCompassBearing(point, center) {
+    let degrees = Math.atan2(point.x - center.x, center.y - point.y) * 180 / Math.PI;
+    if (degrees < 0) degrees += 360;
+    return degrees;
+  }
+
+  function bearingWithinSector(bearing, startDegrees, endDegrees, isFullCircle) {
+    if (isFullCircle) return true;
+    const start = normalizeBearingDegrees(startDegrees);
+    const span = (normalizeBearingDegrees(endDegrees) - start + 360) % 360;
+    const relative = (normalizeBearingDegrees(bearing) - start + 360) % 360;
+    return relative <= span;
+  }
+
+  function pointInAirSector(point, feature) {
+    const center = gameHexToDisplayPixelCenter(feature.center[0], feature.center[1]);
+    const radius = hexRadiusDisplay(feature.radius_hexes || 0);
+    if (Math.hypot(point.x - center.x, point.y - center.y) > radius + 2) return false;
+    return bearingWithinSector(
+      displayPointToCompassBearing(point, center),
+      feature.arc_start_degrees,
+      feature.arc_end_degrees,
+      feature.is_full_circle,
+    );
+  }
+
+  function formatSectorDegrees(feature) {
+    if (feature.is_full_circle) return "360°";
+    return `${Math.round(normalizeBearingDegrees(feature.arc_start_degrees))}°-${Math.round(normalizeBearingDegrees(feature.arc_end_degrees))}°`;
+  }
+
+  function pointInAirRangeCircle(point, feature) {
+    const center = gameHexToDisplayPixelCenter(feature.center[0], feature.center[1]);
+    const radius = hexRadiusDisplay(feature.radius_hexes || 0);
+    return Math.hypot(point.x - center.x, point.y - center.y) <= radius + 2;
+  }
+
+  function centerKey(feature) {
+    if (!feature.center || feature.center.length < 2) return "0,0";
+    return `${feature.center[0]},${feature.center[1]}`;
+  }
+
+  function hqRadiusDisplay(radiusHexes) {
+    return hexRadiusDisplay(radiusHexes);
+  }
+
+  function minefieldArmDisplay(sizeHexes) {
+    return Math.max(6, hexRadiusDisplay(sizeHexes || 0.45) / 2);
+  }
+
+  function distToSegment(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (!dx && !dy) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy)));
+    return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+  }
+
+  function pointInPolygon(p, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if ((yi > p.y) !== (yj > p.y) && p.x < (xj - xi) * (p.y - yi) / ((yj - yi) || 1e-9) + xi)
+        inside = !inside;
+    }
+    return inside;
+  }
+
+  function showTooltip(html, cx, cy) {
+    mapTooltip.innerHTML     = html;
+    mapTooltip.style.display = "block";
+    mapTooltip.style.left    = (cx + 14) + "px";
+    mapTooltip.style.top     = (cy + 14) + "px";
+  }
+  function hideTooltip() { mapTooltip.style.display = "none"; }
+
+  function handleMapHover(event) {
+    if (!mapImage.offsetWidth) { hideTooltip(); return; }
+    const rect = mapImage.getBoundingClientRect();
+    const dp = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    if (dp.x < 0 || dp.y < 0 || dp.x > rect.width || dp.y > rect.height) { hideTooltip(); return; }
+
+    if (logisticsTaskforcesData && logisticsTaskforcesOverlay && logisticsTaskforcesOverlay.style.display !== "none") {
+      for (const f of logisticsTaskforcesData.features) {
+        const s = gameHexToDisplayPixelCenter(f.start[0],  f.start[1]);
+        const e = gameHexToDisplayPixelCenter(f.end[0],    f.end[1]);
+        const t = gameHexToDisplayPixelCenter(f.target[0], f.target[1]);
+        if (Math.min(distToSegment(dp, s, e), distToSegment(dp, e, t)) <= 6) {
+          showTooltip(`Logistics TF: ${f.name||"TF"}<br>Mission: ${f.mission||"UNKNOWN"}<br>Start: ${f.start[0]},${f.start[1]}<br>End: ${f.end[0]},${f.end[1]}<br>Target: ${f.target[0]},${f.target[1]}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (baseSupplyData && baseSupplyOverlay && baseSupplyOverlay.style.display !== "none") {
+      for (const f of baseSupplyData.features) {
+        const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+        const hitRadius = baseSupplyRadiusDisplay(f.marker_shape || "circle");
+        if (Math.hypot(dp.x - c.x, dp.y - c.y) <= hitRadius + 2) {
+          showTooltip(`${f.name || "Base"}<br>Supply ${f.supply ?? 0}/${f.supply_required ?? 0}<br>Fuel ${f.fuel ?? 0}/${f.fuel_required ?? 0}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (hqData && hqOverlay && hqOverlay.style.display !== "none") {
+      for (const f of hqData.features) {
+        const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+        if (Math.hypot(dp.x - c.x, dp.y - c.y) <= hqRadiusDisplay(f.radius_hexes || 3) + 2) {
+          showTooltip(`${f.name || "HQ"}<br>${f.base_name || "Unknown Base"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (minefieldsData && minefieldsOverlay && minefieldsOverlay.style.display !== "none") {
+      for (const f of minefieldsData.features) {
+        const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+        const arm = minefieldArmDisplay(f.size_hexes);
+        const hit = Math.min(
+          distToSegment(dp, {x:c.x-arm, y:c.y-arm}, {x:c.x+arm, y:c.y+arm}),
+          distToSegment(dp, {x:c.x+arm, y:c.y-arm}, {x:c.x-arm, y:c.y+arm}),
+        );
+        if (hit <= 5) {
+          showTooltip(`Minefield<br>Hex: ${f.center[0]},${f.center[1]}<br>Mines: ${f.mine_count ?? 0}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (landUnitHqLinkData && landUnitHqLinkOverlay && landUnitHqLinkOverlay.style.display !== "none") {
+      for (const f of landUnitHqLinkData.features) {
+        const s = gameHexToDisplayPixelCenter(f.start[0], f.start[1]);
+        const e = gameHexToDisplayPixelCenter(f.end[0], f.end[1]);
+        if (distToSegment(dp, s, e) <= 6) {
+          showTooltip(`Unit HQ Link<br>Unit: ${f.name || "Unit"}<br>HQ: ${f.hq_name || "HQ"}<br>Unit Type: ${f.unit_type_name || "Unknown"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (landPlanningData && landPlanningOverlay && landPlanningOverlay.style.display !== "none") {
+      for (const f of landPlanningData.features) {
+        const s = gameHexToDisplayPixelCenter(f.start[0], f.start[1]);
+        const e = gameHexToDisplayPixelCenter(f.end[0], f.end[1]);
+        if (distToSegment(dp, s, e) <= 6) {
+          showTooltip(`Planning<br>Unit: ${f.name || "Unit"}<br>Target: ${f.planning_name || "Preparation Target"}<br>Prepared: ${f.prep_percent ?? 0}%<br>Unit Type: ${f.unit_type_name || "Unknown"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (areaCommandData && areaCommandOverlay && areaCommandOverlay.style.display !== "none") {
+      for (const f of areaCommandData.features) {
+        const poly = (f.polygon || []).map(([c,r]) => gameHexToDisplayPixel(c, r));
+        if (poly.length >= 3 && pointInPolygon(dp, poly)) {
+          showTooltip(`Area Command: ${f.name || "Unknown"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (airSearchData && airSearchOverlay && airSearchOverlay.style.display !== "none") {
+      for (const f of airSearchData.features) {
+        if (pointInAirSector(dp, f)) {
+          showTooltip(`Search: ${f.name || "Airgroup"}<br>Base: ${f.base_name || "Unknown Base"}<br>Aircraft: ${f.aircraft_type || "Unknown"}<br>Range: ${f.radius_hexes || 0} hexes<br>Allocation: ${f.allocation_pct || 0}%<br>Sector: ${formatSectorDegrees(f)}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (airAswData && airAswOverlay && airAswOverlay.style.display !== "none") {
+      for (const f of airAswData.features) {
+        if (pointInAirSector(dp, f)) {
+          showTooltip(`ASW: ${f.name || "Airgroup"}<br>Base: ${f.base_name || "Unknown Base"}<br>Aircraft: ${f.aircraft_type || "Unknown"}<br>Range: ${f.radius_hexes || 0} hexes<br>Allocation: ${f.allocation_pct || 0}%<br>Sector: ${formatSectorDegrees(f)}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (airAttackData && airAttackOverlay && airAttackOverlay.style.display !== "none") {
+      const matching = (airAttackData.features || []).filter((f) => pointInAirRangeCircle(dp, f));
+      if (matching.length) {
+        const groupsByCenter = new Map();
+        for (const f of matching) {
+          const key = centerKey(f);
+          if (!groupsByCenter.has(key)) {
+            groupsByCenter.set(key, []);
+          }
+          groupsByCenter.get(key).push(f);
+        }
+
+        let selectedKey = null;
+        let selectedDistance = Number.POSITIVE_INFINITY;
+        for (const [key] of groupsByCenter) {
+          const [hx, hy] = key.split(",").map((v) => Number(v) || 0);
+          const c = gameHexToDisplayPixelCenter(hx, hy);
+          const distance = Math.hypot(dp.x - c.x, dp.y - c.y);
+          if (distance < selectedDistance) {
+            selectedDistance = distance;
+            selectedKey = key;
+          }
+        }
+
+        const selected = (groupsByCenter.get(selectedKey) || []).slice().sort((a, b) => {
+          const rangeDiff = (Number(b.radius_hexes) || 0) - (Number(a.radius_hexes) || 0);
+          if (Math.abs(rangeDiff) > 0.001) return rangeDiff;
+          return String(a.name || "").localeCompare(String(b.name || ""));
+        });
+
+        const first = selected[0] || {};
+        const lines = selected.map((f) => `${f.name || "Airgroup"} (${f.aircraft_type || "Unknown"}, ${f.radius_hexes || 0} hexes)`).join("<br>");
+        showTooltip(`Attack Range (${selected.length})<br>Base: ${first.base_name || "Unknown Base"}<br>${lines}`, event.clientX, event.clientY); return;
+      }
+    }
+
+    if (airHqLinkData && airHqLinkOverlay && airHqLinkOverlay.style.display !== "none") {
+      for (const f of airHqLinkData.features) {
+        const s = gameHexToDisplayPixelCenter(f.start[0], f.start[1]);
+        const e = gameHexToDisplayPixelCenter(f.end[0], f.end[1]);
+        if (distToSegment(dp, s, e) <= 6) {
+          showTooltip(`Airgroup HQ Link<br>Airgroup: ${f.name || "Airgroup"}<br>HQ: ${f.hq_name || "HQ"}<br>Aircraft: ${f.aircraft_type || "Unknown"}<br>Base: ${f.base_name || "Unknown Base"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    const anyThreatOverlayVisible =
+      (threatSubOverlay && threatSubOverlay.style.display !== "none") ||
+      (threatSurfaceOverlay && threatSurfaceOverlay.style.display !== "none") ||
+      (threatCarrierOverlay && threatCarrierOverlay.style.display !== "none") ||
+      (threatAreasOverlay && threatAreasOverlay.style.display !== "none");
+    if (threatsData && anyThreatOverlayVisible) {
+      if (chkThreatAreas.checked) {
+        for (const f of threatsData.features.areas) {
+          const c   = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+          const arm = Math.max(4, hexRadiusDisplay(f.size_hexes) / 2);
+          if (Math.min(distToSegment(dp,{x:c.x-arm,y:c.y-arm},{x:c.x+arm,y:c.y+arm}),
+                       distToSegment(dp,{x:c.x+arm,y:c.y-arm},{x:c.x-arm,y:c.y+arm})) <= 4.5) {
+            showTooltip(`Threat Area<br>Target: ${f.center[0]},${f.center[1]}<br>Score: ${f.score??0}`, event.clientX, event.clientY); return;
+          }
+        }
+      }
+      for (const [key, chk, label] of [["carrier",chkThreatCarrier,"Carrier Threat"],["surface",chkThreatSurface,"Surface Threat"],["sub",chkThreatSubs,"Sub Threat"]]) {
+        if (!chk.checked) continue;
+        for (const f of threatsData.features[key]) {
+          const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+          if (Math.hypot(dp.x - c.x, dp.y - c.y) <= hexRadiusDisplay(f.radius_hexes) + 2) {
+            showTooltip(`${label}<br>Hex: ${f.center[0]},${f.center[1]}<br>Score: ${f.score??0}`, event.clientX, event.clientY); return;
+          }
+        }
+      }
+    }
+
+    if (chkSubpatrols.checked && subpatrolsData) {
+      for (const f of subpatrolsData.features) {
+        const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+        if (Math.hypot(dp.x - c.x, dp.y - c.y) <= hexRadiusDisplay(f.radius_hexes) + 2) {
+          showTooltip(`Subpatrol: ${f.name||"SUBPATROL"}<br>Target: ${f.center[0]},${f.center[1]}<br>Radius: ${f.radius_hexes*2} hex diameter`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (chkInvasions.checked && invasionsData) {
+      for (const f of invasionsData.features) {
+        const c = gameHexToDisplayPixelCenter(f.center[0], f.center[1]);
+        if (Math.hypot(dp.x - c.x, dp.y - c.y) <= invasionRadiusDisplay() + 2) {
+          showTooltip(`Invasion: ${f.name || "Unknown"}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (chkTaskforces.checked && taskforcesData) {
+      for (const f of taskforcesData.features) {
+        const s = gameHexToDisplayPixelCenter(f.start[0],  f.start[1]);
+        const e = gameHexToDisplayPixelCenter(f.end[0],    f.end[1]);
+        const t = gameHexToDisplayPixelCenter(f.target[0], f.target[1]);
+        if (Math.min(distToSegment(dp,s,e), distToSegment(dp,e,t)) <= 6) {
+          showTooltip(`Taskforce: ${f.name||"TF"}<br>Mission: ${f.mission||"UNKNOWN"}<br>Start: ${f.start[0]},${f.start[1]}<br>End: ${f.end[0]},${f.end[1]}<br>Target: ${f.target[0]},${f.target[1]}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    if (chkRegions.checked && regionsData) {
+      for (const f of regionsData.features) {
+        const poly = f.polygon.map(([c,r]) => gameHexToDisplayPixel(c, r));
+        if (poly.length >= 3 && pointInPolygon(dp, poly)) {
+          showTooltip(`Region: ${f.name}<br>Code: ${f.abbr}`, event.clientX, event.clientY); return;
+        }
+      }
+    }
+
+    hideTooltip();
+  }
+
+  // ── Data loading (hover only) ─────────────────────────────────────────────
+  function loadOverlayData() {
+    fetch("/api/overlays/regions", {cache:"no-store"}).then(r=>r.json()).then(d=>{regionsData=d;}).catch(()=>{});
+    if (logisticsMode) {
+      fetch("/api/overlays/base-supply", {cache:"no-store"}).then(r=>r.json()).then(d=>{baseSupplyData=d;}).catch(()=>{});
+      fetch("/api/overlays/logistics-taskforces", {cache:"no-store"}).then(r=>r.json()).then(d=>{logisticsTaskforcesData=d;}).catch(()=>{});
+      return;
+    }
+    if (areaCommandMode) {
+      fetch(`/api/overlays/${mapMode}-area-command`, {cache:"no-store"}).then(r=>r.json()).then(d=>{areaCommandData=d;}).catch(()=>{});
+    }
+    if (hqMode) {
+      fetch(`/api/overlays/${mapMode}-hq`, {cache:"no-store"}).then(r=>r.json()).then(d=>{hqData=d;}).catch(()=>{});
+    }
+    if (mapMode === "sea") {
+      fetch("/api/overlays/sea-minefields", {cache:"no-store"}).then(r=>r.json()).then(d=>{minefieldsData=d;}).catch(()=>{});
+    }
+    if (mapMode === "land") {
+      fetch("/api/overlays/land-unit-hq-link", {cache:"no-store"}).then(r=>r.json()).then(d=>{landUnitHqLinkData=d;}).catch(()=>{});
+      fetch("/api/overlays/land-planning", {cache:"no-store"}).then(r=>r.json()).then(d=>{landPlanningData=d;}).catch(()=>{});
+    }
+    if (airMissionMode) {
+      fetch("/api/overlays/air-search", {cache:"no-store"}).then(r=>r.json()).then(d=>{airSearchData=d;}).catch(()=>{});
+      fetch("/api/overlays/air-asw", {cache:"no-store"}).then(r=>r.json()).then(d=>{airAswData=d;}).catch(()=>{});
+      fetch("/api/overlays/air-attack", {cache:"no-store"}).then(r=>r.json()).then(d=>{airAttackData=d;}).catch(()=>{});
+      fetch("/api/overlays/air-hq-link", {cache:"no-store"}).then(r=>r.json()).then(d=>{airHqLinkData=d;}).catch(()=>{});
+    }
+    if (subThreatMode) {
+      fetch("/api/overlays/threats", {cache:"no-store"}).then(r=>r.json()).then(d=>{threatsData=d;}).catch(()=>{});
+    }
+    if (airMissionMode) {
+      return;
+    }
+    if (hqMode || areaCommandMode) {
+      return;
+    }
+    fetch("/api/overlays/invasions", {cache:"no-store"}).then(r=>r.json()).then(d=>{invasionsData=d;}).catch(()=>{});
+    fetch("/api/overlays/taskforces", {cache:"no-store"}).then(r=>r.json()).then(d=>{taskforcesData=d;}).catch(()=>{});
+    fetch("/api/overlays/subpatrols", {cache:"no-store"}).then(r=>r.json()).then(d=>{subpatrolsData=d;}).catch(()=>{});
+    fetch("/api/overlays/threats", {cache:"no-store"}).then(r=>r.json()).then(d=>{threatsData=d;}).catch(()=>{});
+  }
+
+  // ── Event wiring ──────────────────────────────────────────────────────────
+  mapImage.addEventListener("load",        () => fitMapToWindow());
+  window.addEventListener("resize",        () => fitMapToWindow());
+  chkScale.addEventListener("change",      () => fitMapToWindow());
+
+  chkRegions.addEventListener("change",       updateOverlayVisibility);
+  chkBaseSupply.addEventListener("change",    updateOverlayVisibility);
+  chkLogisticsTaskforces.addEventListener("change", updateOverlayVisibility);
+  chkAreaCommandOverlay.addEventListener("change",  updateOverlayVisibility);
+  chkAirSearchOverlay.addEventListener("change", updateOverlayVisibility);
+  chkAirAswOverlay.addEventListener("change", updateOverlayVisibility);
+  chkAirAttackOverlay.addEventListener("change", updateOverlayVisibility);
+  chkAirHqLinkOverlay.addEventListener("change", updateOverlayVisibility);
+  chkMinefieldsOverlay.addEventListener("change", updateOverlayVisibility);
+  chkHqOverlay.addEventListener("change",     updateOverlayVisibility);
+  chkLandUnitHqLinkOverlay.addEventListener("change", updateOverlayVisibility);
+  chkLandPlanningOverlay.addEventListener("change", updateOverlayVisibility);
+  chkInvasions.addEventListener("change",     updateOverlayVisibility);
+  chkTaskforces.addEventListener("change",    updateOverlayVisibility);
+  chkSubpatrols.addEventListener("change",    updateOverlayVisibility);
+  chkThreatSubs.addEventListener("change",    updateOverlayVisibility);
+  chkThreatSurface.addEventListener("change", updateOverlayVisibility);
+  chkThreatCarrier.addEventListener("change", updateOverlayVisibility);
+  chkThreatAreas.addEventListener("change",   updateOverlayVisibility);
+
+  minimapCanvas.addEventListener("click",       handleMinimapClick);
+  mapImage.addEventListener("click",            handleMainMapClick);
+  mapImage.addEventListener("contextmenu",      handleMainMapContextMenu);
+  mapStack.addEventListener("mousemove",        handleMapHover);
+  mapStack.addEventListener("mouseleave",       hideTooltip);
+  mapViewport.addEventListener("scroll",        drawMinimap);
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadOverlayData();
+  updateOverlayVisibility();
+  if (mapImage.complete) fitMapToWindow();
+</script>
+{% endblock %}

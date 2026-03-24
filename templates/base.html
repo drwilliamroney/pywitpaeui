@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WITPAE UI</title>
+  <style>
+    :root {
+      --bg: #0b1420;
+      --panel: #101f2d;
+      --text: #e6edf3;
+      --muted: #9bb0c4;
+      --accent: #4ea5d9;
+      --warn: #d18b47;
+      --ok: #3eb489;
+      --danger: #ca5f5f;
+      --border: #253a4d;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 700px at 0% 0%, #163047 0%, transparent 60%),
+        radial-gradient(1000px 700px at 100% 100%, #0f2940 0%, transparent 60%),
+        var(--bg);
+      min-height: 100vh;
+    }
+
+    nav {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      padding: 12px 18px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(10, 18, 28, 0.75);
+      backdrop-filter: blur(6px);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      color: #d4e8f7;
+      margin-bottom: 8px;
+    }
+
+    .nav-left {
+      min-width: 0;
+      flex: 1;
+    }
+
+    .nav-primary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .nav-secondary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .tab-link {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 12px;
+      color: #c6dbeb;
+      text-decoration: none;
+      font-size: 0.9rem;
+      background: rgba(22, 41, 58, 0.8);
+      transition: border-color 140ms ease, color 140ms ease, background-color 140ms ease;
+    }
+
+    .tab-link:hover {
+      border-color: #4d7a9a;
+      color: #e3f3ff;
+      background: rgba(26, 52, 74, 0.95);
+    }
+
+    .tab-link.active {
+      border-color: #5aa1d0;
+      color: #f2f9ff;
+      background: rgba(47, 97, 134, 0.9);
+      font-weight: 600;
+    }
+
+    .tab-link.subtab {
+      border-radius: 10px;
+      padding: 5px 10px;
+      font-size: 0.84rem;
+      background: rgba(14, 29, 42, 0.92);
+      color: #b7d0e4;
+    }
+
+    .tab-link.subtab.active {
+      background: rgba(33, 75, 104, 0.96);
+      color: #f2f9ff;
+    }
+
+    .banner {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+      justify-content: flex-end;
+      max-width: 48%;
+    }
+
+    .status-pill {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-weight: 600;
+      color: #d4e8f7;
+      background: #17293a;
+    }
+
+    .status-progress {
+      border-color: #69472c;
+      background: #3b2b1f;
+      color: #ffd8b0;
+    }
+
+    .status-done {
+      border-color: #2b5a47;
+      background: #18372c;
+      color: #bcefdc;
+    }
+
+    .status-error {
+      border-color: #7f2e2e;
+      background: #3b1919;
+      color: #ffc4c4;
+    }
+
+    main {
+      padding: 14px;
+    }
+
+    .turn-alert {
+      border: 1px solid #8d6b42;
+      background: rgba(98, 67, 33, 0.45);
+      color: #f6ddb8;
+      border-radius: 10px;
+      padding: 10px 12px;
+      margin-bottom: 12px;
+      display: none;
+    }
+
+    .turn-done {
+      border-color: #2f6b55;
+      background: rgba(24, 69, 49, 0.45);
+      color: #caefdc;
+    }
+
+    @media (max-width: 1120px) {
+      nav {
+        flex-direction: column;
+      }
+
+      .banner {
+        max-width: none;
+        justify-content: flex-start;
+      }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="nav-left">
+      <div class="title">WITPAE Command UI</div>
+      {% if nav_sections %}
+      <div class="nav-primary">
+        {% for section in nav_sections %}
+        <a href="{{ section.href }}" class="tab-link{% if section.active %} active{% endif %}">{{ section.label }}</a>
+        {% endfor %}
+      </div>
+      {% for section in nav_sections %}
+      {% if section.active and section.children %}
+      <div class="nav-secondary">
+        {% for child in section.children %}
+        <a href="{{ child.href }}" class="tab-link subtab{% if child.active %} active{% endif %}">{{ child.label }}</a>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% endfor %}
+      {% endif %}
+    </div>
+    <div class="banner">
+      <span>Date: <strong id="banner-date">{{ game_date }}</strong></span>
+      <span>Turn: <strong id="banner-turn">{{ game_turn }}</strong></span>
+      <span>Scenario: <strong id="banner-scenario">{{ scenario_name }}</strong></span>
+      <span>Side: <strong id="banner-side">{{ side }}</strong></span>
+      <span class="status-pill" id="turn-pill">Idle</span>
+    </div>
+  </nav>
+
+  <main>
+    <div id="turn-alert" class="turn-alert">Turn processing is in progress...</div>
+    {% block content %}{% endblock %}
+  </main>
+
+  <script>
+    let previousTurnInProgress = null;
+    let previousToolStatus = null;
+    let previousOverlayStatus = null;
+
+    async function pollTurnState() {
+      try {
+        const response = await fetch("/api/game-state", { cache: "no-store" });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload = await response.json();
+        const alertEl = document.getElementById("turn-alert");
+        const pillEl = document.getElementById("turn-pill");
+        const dateEl = document.getElementById("banner-date");
+        const turnEl = document.getElementById("banner-turn");
+        const scenarioEl = document.getElementById("banner-scenario");
+        const toolStatus = payload.pwstool_last_status || "not-run";
+        const toolMessage = payload.pwstool_last_message || "";
+        const overlayStatus = payload.overlay_refresh_status || "not-started";
+        const overlayMessage = payload.overlay_refresh_message || "";
+
+        // Detect completion and refresh page
+        const toolWasRunning = previousToolStatus === "running";
+        const overlayWasRunning = previousOverlayStatus === "running";
+        const toolCompleted = toolWasRunning && (toolStatus === "success" || toolStatus === "failed");
+        const overlayCompleted = overlayWasRunning && overlayStatus === "success";
+
+        previousToolStatus = toolStatus;
+        previousOverlayStatus = overlayStatus;
+
+        if (toolCompleted || overlayCompleted) {
+          // Full page refresh when update completes
+          window.location.reload();
+          return;
+        }
+
+        dateEl.textContent = payload.game_date || "-";
+        turnEl.textContent = payload.game_turn ?? "-";
+        scenarioEl.textContent = payload.scenario_name || "-";
+
+        if (payload.turn_in_progress) {
+          alertEl.classList.remove("turn-done");
+          alertEl.textContent = "Turn processing is in progress...";
+          alertEl.style.display = "block";
+
+          pillEl.classList.remove("status-error");
+          pillEl.classList.remove("status-done");
+          pillEl.classList.add("status-progress");
+          pillEl.textContent = "Turn Running | Updating: Pending | Overlays: Waiting";
+        } else {
+          pillEl.classList.remove("status-error");
+          pillEl.classList.remove("status-progress");
+          pillEl.classList.add("status-done");
+          let updateLabel = "Not Started";
+          if (toolStatus === "success") {
+            updateLabel = "Complete";
+          } else if (toolStatus === "failed") {
+            pillEl.classList.remove("status-done");
+            pillEl.classList.add("status-error");
+            updateLabel = "Failed";
+          } else if (toolStatus === "running") {
+            pillEl.classList.remove("status-done");
+            pillEl.classList.add("status-progress");
+            updateLabel = "Running";
+          }
+
+          let overlayLabel = "Not Started";
+          if (overlayStatus === "success") {
+            overlayLabel = "Complete";
+          } else if (overlayStatus === "running") {
+            pillEl.classList.remove("status-done");
+            pillEl.classList.add("status-progress");
+            overlayLabel = "Running";
+          } else if (overlayStatus === "failed") {
+            pillEl.classList.remove("status-done");
+            pillEl.classList.add("status-error");
+            overlayLabel = "Failed";
+          }
+
+          pillEl.textContent = `Turn Idle | Updating: ${updateLabel} | Overlays: ${overlayLabel}`;
+
+          alertEl.style.display = "none";
+        }
+
+        if (overlayStatus === "running") {
+          alertEl.classList.remove("turn-done");
+          alertEl.textContent = overlayMessage || "Generating overlay cache...";
+          alertEl.style.display = "block";
+        }
+
+        if (!payload.turn_in_progress && toolStatus === "failed" && toolMessage) {
+          alertEl.classList.add("turn-done");
+          alertEl.textContent = toolMessage;
+          alertEl.style.display = "block";
+        }
+
+        previousTurnInProgress = Boolean(payload.turn_in_progress);
+      } catch (_error) {
+        // Keep polling during transient errors.
+      }
+    }
+
+    setInterval(pollTurnState, 5000);
+    pollTurnState();
+  </script>
+</body>
+</html>

@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .ctrl-label {
+    font-size: 0.82rem;
+    color: #9fb8ce;
+    margin-right: 6px;
+  }
+
+  .ctrl-input {
+    border: 1px solid #2a4258;
+    background: #0b1622;
+    color: #d5e9f8;
+    border-radius: 6px;
+    padding: 5px 8px;
+    min-height: 30px;
+  }
+
+  .summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .summary-card {
+    border: 1px solid #2a4258;
+    border-radius: 8px;
+    background: #0b1725;
+    padding: 8px;
+  }
+
+  .summary-card-label {
+    color: #9fb8ce;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .summary-card-value {
+    color: #e3f2ff;
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin-top: 4px;
+  }
+
+  @media (max-width: 980px) {
+    .data-grid {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
+<div class="data-grid" style="display:grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 1fr); gap:12px; align-items:start;">
+  <section style="border:1px solid #28435a; border-radius:10px; background:#0d1a29; padding:12px;">
+    <h2 style="margin:0 0 8px; color:#d8ebfa; font-size:1.15rem;">{{ data_title }}</h2>
+    <div style="color:#9fb8ce; font-size:0.9rem; margin-bottom:8px;">
+      <div>Source: {{ data_file }}</div>
+      <div>Parse Mode: {{ parse_mode }}</div>
+      <div>Shape: {{ kind }} ({{ size }} item{% if size != 1 %}s{% endif %})</div>
+      {% if custom_note %}<div>{{ custom_note }}</div>{% endif %}
+    </div>
+
+    {% if custom_cards %}
+    <div class="summary-cards">
+      {% for card in custom_cards %}
+      <div class="summary-card">
+        <div class="summary-card-label">{{ card.label }}</div>
+        <div class="summary-card-value">{{ card.value }}</div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if custom_metrics %}
+    <div style="margin-bottom:10px; border:1px solid #1f3548; border-radius:8px; overflow:hidden;">
+      <div style="padding:8px 10px; background:#102233; color:#c9deef; font-size:0.82rem; text-transform:uppercase; letter-spacing:0.05em;">Computed Metrics</div>
+      <table style="width:100%; border-collapse:collapse; font-size:0.86rem;">
+        <tbody>
+          {% for metric in custom_metrics %}
+          <tr>
+            <td style="border-bottom:1px solid #1f3548; padding:6px; color:#b8d4e8;">{{ metric.label }}</td>
+            <td style="border-bottom:1px solid #1f3548; padding:6px; color:#e3f2ff; text-align:right;">{{ metric.value }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    {% if kind == "list-objects" %}
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;">
+      <label class="ctrl-label" for="tableFilter">Filter Rows</label>
+      <input id="tableFilter" class="ctrl-input" type="text" placeholder="type to filter this table">
+
+      <label class="ctrl-label" for="tableSort">Sort By</label>
+      <select id="tableSort" class="ctrl-input">
+        <option value="">(none)</option>
+        {% for column in columns %}
+        <option value="{{ loop.index0 }}">{{ column }}</option>
+        {% endfor %}
+      </select>
+
+      <select id="tableSortDirection" class="ctrl-input">
+        <option value="asc">A-Z</option>
+        <option value="desc">Z-A</option>
+      </select>
+    </div>
+    {% endif %}
+
+    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px;">
+      <label class="ctrl-label" for="autoRefreshInterval">Auto Refresh</label>
+      <select id="autoRefreshInterval" class="ctrl-input">
+        <option value="0">Off</option>
+        <option value="15">15 seconds</option>
+        <option value="30">30 seconds</option>
+        <option value="60">60 seconds</option>
+        <option value="120">120 seconds</option>
+      </select>
+    </div>
+
+    {% if kind == "object" %}
+    <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+      <thead>
+        <tr>
+          <th style="text-align:left; border-bottom:1px solid #28435a; padding:6px; color:#b8d4e8;">Key</th>
+          <th style="text-align:left; border-bottom:1px solid #28435a; padding:6px; color:#b8d4e8;">Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in object_rows %}
+        <tr>
+          <td style="border-bottom:1px solid #1f3548; padding:6px; color:#d5e9f8; vertical-align:top;">{{ row.key }}</td>
+          <td style="border-bottom:1px solid #1f3548; padding:6px; color:#adc7da;">{{ row.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% elif kind == "list-objects" %}
+    <div style="overflow:auto; max-height:60vh; border:1px solid #1f3548; border-radius:8px;">
+      <table id="jsonTable" style="min-width:100%; border-collapse:collapse; font-size:0.88rem;">
+        <thead>
+          <tr>
+            {% for column in columns %}
+            <th style="text-align:left; border-bottom:1px solid #28435a; padding:6px; color:#b8d4e8; background:#102233;">{{ column }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            {% for value in row %}
+            <td style="border-bottom:1px solid #1f3548; padding:6px; color:#adc7da; white-space:nowrap;">{{ value }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif kind == "list-values" or kind == "scalar" %}
+    <ul style="margin:0; padding-left:18px; color:#d5e9f8;">
+      {% for value in list_values %}
+      <li style="margin-bottom:5px;">{{ value }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+
+  <section style="border:1px solid #28435a; border-radius:10px; background:#0d1a29; padding:12px;">
+    <h3 style="margin:0 0 8px; color:#d8ebfa; font-size:1rem;">Raw Preview</h3>
+    <pre style="margin:0; font-size:0.82rem; line-height:1.38; color:#b7d0e3; background:#09121c; border:1px solid #1e3346; border-radius:8px; padding:10px; overflow:auto; max-height:66vh;">{{ raw_preview }}</pre>
+  </section>
+</div>
+
+<script>
+  (function () {
+    const table = document.getElementById("jsonTable");
+    const filterInput = document.getElementById("tableFilter");
+    const sortSelect = document.getElementById("tableSort");
+    const dirSelect = document.getElementById("tableSortDirection");
+    const refreshSelect = document.getElementById("autoRefreshInterval");
+
+    const refreshKey = `data-refresh:${window.location.pathname}`;
+    let refreshTimer = null;
+
+    function applyFilterAndSort() {
+      if (!table) return;
+
+      const body = table.tBodies[0];
+      if (!body) return;
+
+      const rows = Array.from(body.rows);
+      const filterValue = (filterInput ? filterInput.value : "").trim().toLowerCase();
+      const sortIndex = sortSelect && sortSelect.value !== "" ? Number(sortSelect.value) : null;
+      const descending = dirSelect && dirSelect.value === "desc";
+
+      const visibleRows = rows.filter((row) => {
+        const haystack = row.innerText.toLowerCase();
+        const visible = !filterValue || haystack.includes(filterValue);
+        row.style.display = visible ? "" : "none";
+        return visible;
+      });
+
+      if (sortIndex !== null && Number.isFinite(sortIndex)) {
+        visibleRows.sort((a, b) => {
+          const aText = (a.cells[sortIndex] ? a.cells[sortIndex].innerText : "").toLowerCase();
+          const bText = (b.cells[sortIndex] ? b.cells[sortIndex].innerText : "").toLowerCase();
+          if (aText === bText) return 0;
+          if (descending) {
+            return aText < bText ? 1 : -1;
+          }
+          return aText > bText ? 1 : -1;
+        });
+
+        for (const row of visibleRows) {
+          body.appendChild(row);
+        }
+      }
+    }
+
+    function setAutoRefresh(seconds) {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+
+      if (!seconds || seconds <= 0) {
+        return;
+      }
+
+      refreshTimer = setInterval(() => {
+        window.location.reload();
+      }, seconds * 1000);
+    }
+
+    if (filterInput) {
+      filterInput.addEventListener("input", applyFilterAndSort);
+    }
+    if (sortSelect) {
+      sortSelect.addEventListener("change", applyFilterAndSort);
+    }
+    if (dirSelect) {
+      dirSelect.addEventListener("change", applyFilterAndSort);
+    }
+
+    if (refreshSelect) {
+      const stored = window.localStorage.getItem(refreshKey) || "0";
+      refreshSelect.value = stored;
+      setAutoRefresh(Number(stored));
+
+      refreshSelect.addEventListener("change", () => {
+        window.localStorage.setItem(refreshKey, refreshSelect.value);
+        setAutoRefresh(Number(refreshSelect.value));
+      });
+    }
+
+    applyFilterAndSort();
+  })();
+</script>
+{% endblock %}

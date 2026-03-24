@@ -1,0 +1,270 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .combat-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .combat-summary-card {
+    border: 1px solid #28435a;
+    border-radius: 10px;
+    background: #0d1a29;
+    padding: 10px 12px;
+  }
+
+  .combat-summary-label {
+    color: #9fb8ce;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .combat-summary-value {
+    color: #e5f1fb;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+
+  .combat-grid {
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
+  }
+
+  .combat-panel {
+    border: 1px solid #28435a;
+    border-radius: 10px;
+    background: #0d1a29;
+    overflow: hidden;
+  }
+
+  .combat-panel-header {
+    padding: 12px 14px;
+    border-bottom: 1px solid #1f3548;
+    background: #102233;
+  }
+
+  .combat-panel-title {
+    margin: 0;
+    color: #d8ebfa;
+    font-size: 1rem;
+  }
+
+  .combat-panel-subtitle {
+    margin-top: 4px;
+    color: #9fb8ce;
+    font-size: 0.88rem;
+  }
+
+  .combat-list {
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+  }
+
+  .combat-list-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    border-bottom: 1px solid #173044;
+    background: transparent;
+    color: inherit;
+    padding: 12px 14px;
+    cursor: pointer;
+  }
+
+  .combat-list-item:hover {
+    background: #12283a;
+  }
+
+  .combat-list-item.active {
+    background: #183349;
+    box-shadow: inset 3px 0 0 #5aa1d0;
+  }
+
+  .combat-where {
+    color: #e5f1fb;
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .combat-type-summary {
+    margin-top: 4px;
+    color: #a9c6db;
+    font-size: 0.84rem;
+  }
+
+  .combat-report-count {
+    margin-top: 6px;
+    color: #7fc3ec;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .combat-detail-scroll {
+    max-height: calc(100vh - 280px);
+    overflow: auto;
+    padding: 14px;
+  }
+
+  .combat-group-detail {
+    display: none;
+  }
+
+  .combat-group-detail.active {
+    display: block;
+  }
+
+  .combat-report-block + .combat-report-block {
+    margin-top: 12px;
+  }
+
+  .combat-report-block {
+    border: 1px solid #1f3548;
+    border-radius: 10px;
+    background: #091521;
+    overflow: hidden;
+  }
+
+  .combat-report-header {
+    padding: 10px 12px;
+    border-bottom: 1px solid #1f3548;
+    background: #0f2131;
+  }
+
+  .combat-report-title {
+    color: #d8ebfa;
+    font-size: 0.96rem;
+    font-weight: 600;
+  }
+
+  .combat-report-type {
+    margin-top: 4px;
+    color: #8dc6ea;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .combat-report-body {
+    margin: 0;
+    padding: 12px;
+    color: #bfd5e6;
+    font-size: 0.84rem;
+    line-height: 1.4;
+    white-space: pre-wrap;
+    font-family: Consolas, "Courier New", monospace;
+  }
+
+  .combat-empty {
+    padding: 18px 16px;
+    color: #a9c6db;
+  }
+
+  @media (max-width: 960px) {
+    .combat-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .combat-list,
+    .combat-detail-scroll {
+      max-height: none;
+    }
+  }
+</style>
+
+<section style="margin-bottom:12px;">
+  <h2 style="margin:0 0 6px; color:#d8ebfa; font-size:1.15rem;">Major Combat Reports</h2>
+  <div style="color:#9fb8ce; font-size:0.9rem;">{{ combat_heading }}</div>
+  <div style="color:#9fb8ce; font-size:0.84rem; margin-top:4px;">Source: {{ combat_report_path }}</div>
+  {% if combat_note %}
+  <div style="color:#f0cd95; font-size:0.84rem; margin-top:8px;">{{ combat_note }}</div>
+  {% endif %}
+</section>
+
+{% if combat_cards %}
+<div class="combat-summary-cards">
+  {% for card in combat_cards %}
+  <div class="combat-summary-card">
+    <div class="combat-summary-label">{{ card.label }}</div>
+    <div class="combat-summary-value">{{ card.value }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<div class="combat-grid">
+  <section class="combat-panel">
+    <div class="combat-panel-header">
+      <h3 class="combat-panel-title">Combat Locations</h3>
+      <div class="combat-panel-subtitle">Grouped by location, with aggregated combat types.</div>
+    </div>
+    <div class="combat-list" id="combatList">
+      {% if combat_groups %}
+      {% for group in combat_groups %}
+      <button type="button" class="combat-list-item{% if loop.first %} active{% endif %}" data-group-id="{{ group.id }}">
+        <div class="combat-where">{{ group.where_label }}</div>
+        <div class="combat-type-summary">{{ group.type_summary }}</div>
+        <div class="combat-report-count">{{ group.reports|length }} report{% if group.reports|length != 1 %}s{% endif %}</div>
+      </button>
+      {% endfor %}
+      {% else %}
+      <div class="combat-empty">No matching major combat reports were found.</div>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="combat-panel">
+    <div class="combat-panel-header">
+      <h3 class="combat-panel-title">Report Detail</h3>
+      <div class="combat-panel-subtitle">All matching reports for the selected location.</div>
+    </div>
+    <div class="combat-detail-scroll">
+      {% if combat_groups %}
+      {% for group in combat_groups %}
+      <div class="combat-group-detail{% if loop.first %} active{% endif %}" data-group-id="{{ group.id }}">
+        {% for report in group.reports %}
+        <article class="combat-report-block">
+          <div class="combat-report-header">
+            <div class="combat-report-title">{{ report.title }}</div>
+            <div class="combat-report-type">{{ report.type_label }}</div>
+          </div>
+          <pre class="combat-report-body">{{ report.content }}</pre>
+        </article>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="combat-empty">No detail is available because no combat entries matched the current filters.</div>
+      {% endif %}
+    </div>
+  </section>
+</div>
+
+<script>
+  (function () {
+    const buttons = Array.from(document.querySelectorAll(".combat-list-item[data-group-id]"));
+    const details = Array.from(document.querySelectorAll(".combat-group-detail[data-group-id]"));
+
+    function activate(groupId) {
+      for (const button of buttons) {
+        button.classList.toggle("active", button.dataset.groupId === groupId);
+      }
+
+      for (const detail of details) {
+        detail.classList.toggle("active", detail.dataset.groupId === groupId);
+      }
+    }
+
+    for (const button of buttons) {
+      button.addEventListener("click", () => activate(button.dataset.groupId));
+    }
+  })();
+</script>
+{% endblock %}

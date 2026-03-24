@@ -1,0 +1,3 @@
+[submodule "deps/pywitpaescraper"]
+	path = deps/pywitpaescraper
+	url = https://github.com/drwilliamroney/pywitpaescraper

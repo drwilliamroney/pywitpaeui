@@ -1,0 +1,304 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  .shipyard-page-title {
+    color: #d8ebfa;
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: 0.02em;
+  }
+
+  .shipyard-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .shipyard-column {
+    border: 1px solid #1c3144;
+    border-radius: 6px;
+    background: #0b1826;
+    padding: 12px;
+  }
+
+  .shipyard-column-title {
+    color: #d7e9f8;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #1a2d40;
+  }
+
+  .damaged-ship {
+    border: 1px solid #163047;
+    border-radius: 4px;
+    background: #0a1826;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+
+  .damaged-ship-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    color: #c2d9eb;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .damaged-ship-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .damaged-ship-summary::before {
+    content: "+";
+    margin-right: 4px;
+    color: #84a8c1;
+    font-weight: 700;
+  }
+
+  .damaged-ship[open] .damaged-ship-summary::before {
+    content: "-";
+  }
+
+  .damaged-ship-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .damaged-ship-location {
+    color: #e3f2ff;
+    font-weight: 600;
+  }
+
+  .damaged-ship-count {
+    color: #95b8d2;
+    font-size: 0.72rem;
+  }
+
+  .damaged-ship-list {
+    border-top: 1px solid #1a2f43;
+    background: #091523;
+    padding: 2px 0;
+  }
+
+  .ship-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    border-bottom: 1px solid #102235;
+  }
+
+  .ship-row:last-child {
+    border-bottom: 0;
+  }
+
+  .ship-indent {
+    width: 12px;
+    color: #5f8097;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  .ship-type {
+    color: #9ebbd2;
+    font-weight: 600;
+    min-width: 30px;
+  }
+
+  .ship-name {
+    color: #89acc6;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ship-meta {
+    color: #7ea2bc;
+    font-size: 0.68rem;
+    white-space: nowrap;
+    margin-right: 8px;
+    flex-shrink: 0;
+  }
+
+  .ship-tonnage {
+    color: #bad4e8;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .shipyard {
+    border: 1px solid #163047;
+    border-radius: 4px;
+    background: #0a1826;
+    margin-bottom: 6px;
+    overflow: hidden;
+  }
+
+  .shipyard-summary {
+    list-style: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    color: #c2d9eb;
+    font-size: 0.78rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .shipyard-summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .shipyard-summary::before {
+    content: "+";
+    margin-right: 4px;
+    color: #84a8c1;
+    font-weight: 700;
+  }
+
+  .shipyard[open] .shipyard-summary::before {
+    content: "-";
+  }
+
+  .shipyard-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .shipyard-name {
+    color: #e3f2ff;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .shipyard-stats {
+    display: flex;
+    gap: 12px;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .shipyard-tonnage {
+    color: #95b8d2;
+    font-size: 0.72rem;
+  }
+
+  .shipyard-count {
+    color: #95b8d2;
+    font-size: 0.72rem;
+  }
+
+  .shipyard-list {
+    border-top: 1px solid #1a2f43;
+    background: #091523;
+    padding: 2px 0;
+  }
+
+  .empty-note {
+    color: #4a6678;
+    font-size: 0.74rem;
+    font-style: italic;
+    padding: 2px 8px;
+  }
+
+  @media (max-width: 900px) {
+    .shipyard-container {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<h1 class="shipyard-page-title">Shipyard & Damaged Ships</h1>
+
+<div class="shipyard-container">
+  <!-- Damaged Ships Column -->
+  <div class="shipyard-column">
+    <div class="shipyard-column-title">Damaged Ships</div>
+    {% if damaged_ships %}
+      {% for location_group in damaged_ships %}
+      <details class="damaged-ship">
+        <summary class="damaged-ship-summary">
+          <span class="damaged-ship-header">
+            <span class="damaged-ship-location">
+              {% if location_group.location == "At Sea" %}
+                {{ location_group.name }}
+              {% else %}
+                {{ location_group.location }}
+              {% endif %}
+            </span>
+            <span class="damaged-ship-count">({{ location_group.count }})</span>
+          </span>
+        </summary>
+        <div class="damaged-ship-list">
+          {% for ship in location_group.ships %}
+          <div class="ship-row">
+            <span class="ship-indent">•</span>
+            <span class="ship-type">{{ ship.type }}</span>
+            <span class="ship-name">{{ ship.name }}</span>
+            <span class="ship-meta">{{ ship.state }} | S{{ ship.sys_damage }}/F{{ ship.flt_damage }}/E{{ ship.eng_damage }}/Fi{{ ship.fire_damage }}</span>
+            <span class="ship-tonnage">{{ ship.tonnage }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </details>
+      {% endfor %}
+    {% else %}
+      <div class="empty-note">No damaged ships{% if damaged_notice %} - {{ damaged_notice }}{% endif %}</div>
+    {% endif %}
+  </div>
+
+  <!-- Shipyards Column -->
+  <div class="shipyard-column">
+    <div class="shipyard-column-title">Shipyards</div>
+    {% if shipyards %}
+      {% for yard in shipyards %}
+      <details class="shipyard">
+        <summary class="shipyard-summary">
+          <span class="shipyard-header">
+            <span class="shipyard-name">{{ yard.base }}</span>
+          </span>
+          <span class="shipyard-stats">
+            <span class="shipyard-tonnage">{{ '{:,}'.format(yard.in_repair_tonnage) }} / {{ '{:,}'.format(yard.tonnage) }}</span>
+            <span class="shipyard-count">{{ yard.in_repair_count }} ships</span>
+          </span>
+        </summary>
+        {% if yard.ships %}
+        <div class="shipyard-list">
+          {% for ship in yard.ships %}
+          <div class="ship-row">
+            <span class="ship-indent">•</span>
+            <span class="ship-type">{{ ship.type }}</span>
+            <span class="ship-name">{{ ship.name }}</span>
+            <span class="ship-meta">{{ ship.state }} | S{{ ship.sys_damage }}/F{{ ship.flt_damage }}/E{{ ship.eng_damage }}/Fi{{ ship.fire_damage }}</span>
+            <span class="ship-tonnage">{{ ship.tonnage }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </details>
+      {% endfor %}
+    {% else %}
+      <div class="empty-note">No shipyards available</div>
+    {% endif %}
+  </div>
+</div>
+
+{% endblock %}
