@@ -42,3 +42,6 @@ Thumbs.db
 # Runtime-generated static assets
 app/static/map.png
 app/static/_debug_*.png
+
+# Runtime-managed scraper dependency clone
+deps/pywitpaescraper/

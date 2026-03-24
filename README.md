@@ -10,9 +10,9 @@ and presents them as interactive map overlays, data tables, and summary views �
 ## Requirements
 
 - **Python 3.10+** (64-bit, standard interpreter)
-- **Git** — to initialise the PyWITPAEScraper submodule
+- **Git** — to clone/update the PyWITPAEScraper dependency at startup
 - **War in the Pacific: Admiral's Edition** installed locally
-- A 32-bit Python 3 interpreter for the scraper (handled automatically by `run_scraper.bat` inside the submodule)
+- A 32-bit Python 3 interpreter for the scraper (handled automatically by `bootstrap_scraper.bat` / `run_scraper.bat`)
 
 ## Quick Start
 
@@ -24,8 +24,9 @@ That's it. The script will:
 
 1. Create a `.venv` virtual environment (64-bit Python) if one does not exist.
 2. Install Python dependencies from `requirements.txt`.
-3. Initialise the `deps/pywitpaescraper` Git submodule (or clone it directly if Git submodules are unavailable).
-4. Prompt for two values then launch the server.
+3. Ensure `deps/pywitpaescraper` exists: clone it on first run, otherwise `git pull --ff-only origin main`.
+4. Run scraper bootstrap to prepare 32-bit Python runtime/dependencies.
+5. Prompt for two values then launch the server.
 
 ### Prompts
 
@@ -105,12 +106,14 @@ templates/                  # Jinja2 HTML templates
 tests/
   test_ui_app.py            # Integration tests (FastAPI TestClient)
 deps/
-  pywitpaescraper/          # Git submodule — the save-file scraper
+  pywitpaescraper/          # Runtime-managed git clone of the save-file scraper
 ```
 
 ## Dependency: PyWITPAEScraper
 
-The scraper lives at `deps/pywitpaescraper` as a Git submodule.
-`run_ui.bat` initialises it automatically. The scraper requires a **32-bit Python 3** interpreter
-because it loads a 32-bit Windows DLL; `deps/pywitpaescraper/run_scraper.bat` handles installation
-and venv setup for that interpreter automatically.
+The scraper lives at `deps/pywitpaescraper` as a runtime-managed Git clone.
+`run_ui.bat` keeps it on `origin/main` (clone on first run, then pull latest on startup).
+
+The scraper requires a **32-bit Python 3** interpreter because it loads a 32-bit Windows DLL.
+`deps/pywitpaescraper/bootstrap_scraper.bat` prepares that runtime and `run_scraper.bat`
+uses it to execute the exporter.

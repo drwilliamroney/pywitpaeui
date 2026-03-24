@@ -16,22 +16,29 @@ echo Installing dependencies...
 python -m pip install -r requirements.txt
 if errorlevel 1 goto :error
 
-echo Checking pywitpaescraper dependency...
-if not exist "%~dp0deps\pywitpaescraper\pywitpaescraper.py" (
-    echo Initializing pywitpaescraper submodule...
-    git submodule update --init --recursive
-    if errorlevel 1 (
-        echo Git submodule init failed; attempting direct clone...
-        git clone https://github.com/drwilliamroney/pywitpaescraper "%~dp0deps\pywitpaescraper"
-        if errorlevel 1 goto :error
-    )
-)
+set "SCRAPER_DEP_PATH=%~dp0deps\pywitpaescraper"
+set "SCRAPER_REPO_URL=https://github.com/drwilliamroney/pywitpaescraper"
 
-echo Updating pywitpaescraper to tracked branch...
-git submodule update --init --recursive --remote --merge deps\pywitpaescraper
-if errorlevel 1 (
-    echo Failed to update pywitpaescraper submodule from remote branch.
-    goto :error
+echo Ensuring pywitpaescraper dependency is present...
+if not exist "%~dp0deps" mkdir "%~dp0deps"
+
+if exist "%SCRAPER_DEP_PATH%\.git" (
+    echo Updating pywitpaescraper from origin/main...
+    git -C "%SCRAPER_DEP_PATH%" fetch origin main
+    if errorlevel 1 goto :error
+    git -C "%SCRAPER_DEP_PATH%" checkout main
+    if errorlevel 1 goto :error
+    git -C "%SCRAPER_DEP_PATH%" pull --ff-only origin main
+    if errorlevel 1 goto :error
+) else (
+    if exist "%SCRAPER_DEP_PATH%" (
+        echo Existing non-git directory found at "%SCRAPER_DEP_PATH%".
+        echo Please remove or rename it, then run again.
+        goto :error
+    )
+    echo Cloning pywitpaescraper...
+    git clone --branch main --single-branch "%SCRAPER_REPO_URL%" "%SCRAPER_DEP_PATH%"
+    if errorlevel 1 goto :error
 )
 
 echo Bootstrapping pywitpaescraper runtime...
