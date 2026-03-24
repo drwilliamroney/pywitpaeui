@@ -34,6 +34,13 @@ if errorlevel 1 (
     goto :error
 )
 
+echo Bootstrapping pywitpaescraper runtime...
+call "%~dp0deps\pywitpaescraper\bootstrap_scraper.bat"
+if errorlevel 1 (
+    echo Failed to bootstrap pywitpaescraper runtime.
+    goto :error
+)
+
 set "DEFAULT_SIDE=allies"
 set "DEFAULT_GAME_PATH=C:\Matrix Games\War in the Pacific Admiral's Edition"
 
