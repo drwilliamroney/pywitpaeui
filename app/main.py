@@ -37,7 +37,7 @@ from app.overlays import (
     get_toe_data,
     get_unit_hq_link_overlay,
 )
-from app.turn_state import SaveTurnTracker
+from app.turn_state import SaveTurnTracker, TurnState
 
 DEFAULT_SIDE = "allies"
 DEFAULT_GAME_PATH = r"C:\Matrix Games\War in the Pacific Admiral's Edition"
@@ -113,7 +113,7 @@ app.state.overlay_cache_generated_at = ""
 app.state.overlay_cache_pwstool_run_at = ""
 app.state.overlay_refresh_status = "not-started"
 app.state.overlay_refresh_message = "Overlay cache not generated yet"
-app.state.startup_pwstool_triggered = False
+app.state.startup_pwstool_bootstrap_keys = set()
 
 
 def normalize_side(value: str) -> str:
@@ -341,6 +341,39 @@ def _get_turn_tracker(game_path: str) -> SaveTurnTracker:
     return trackers[key]
 
 
+def _startup_pwstool_bootstrap_key(side: str, game_path: str, pwstool_path: str) -> str:
+    normalized_side = normalize_side(side)
+    resolved_game_path = str(Path(game_path).resolve()).lower()
+    resolved_pwstool_path = str(Path(pwstool_path).resolve()).lower()
+    return f"{normalized_side}|{resolved_game_path}|{resolved_pwstool_path}"
+
+
+def _ensure_startup_pwstool_bootstrap(
+    selected_side: str,
+    selected_game_path: str,
+    selected_pwstool_path: str,
+) -> TurnState:
+    tracker = _get_turn_tracker(selected_game_path)
+    state = tracker.update(selected_side, Path(selected_pwstool_path))
+
+    bootstrap_key = _startup_pwstool_bootstrap_key(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
+    bootstrap_keys: set[str] = app.state.startup_pwstool_bootstrap_keys
+    if bootstrap_key in bootstrap_keys:
+        return state
+
+    bootstrap_keys.add(bootstrap_key)
+    app.state.overlay_refresh_status = "running"
+    app.state.overlay_refresh_message = "Bootstrapping scraper and rebuilding game data..."
+    tracker._run_pwstool(selected_side, Path(selected_pwstool_path))
+    state = tracker.state
+    _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    return state
+
+
 def _side_folder_key(side: str) -> str:
     return "allied" if side == "allies" else "japan"
 
@@ -469,17 +502,11 @@ def _render_map_page(
 ):
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
     assembly = _get_map_assembly(selected_game_path)
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
-
-    # On first page load, trigger initial pwstool run if there's data to process
-    if not app.state.startup_pwstool_triggered and tracker.should_run_pwstool_on_startup():
-        app.state.startup_pwstool_triggered = True
-        app.state.overlay_refresh_status = "running"
-        app.state.overlay_refresh_message = "Processing initial game data..."
-        tracker._run_pwstool(selected_side, Path(selected_pwstool_path))
-        state = tracker.state
-        _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
 
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
 
@@ -1354,17 +1381,11 @@ def combat_page(
     request: Request,
 ):
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
-
-    # On first page load, trigger initial pwstool run if there's data to process
-    if not app.state.startup_pwstool_triggered and tracker.should_run_pwstool_on_startup():
-        app.state.startup_pwstool_triggered = True
-        app.state.overlay_refresh_status = "running"
-        app.state.overlay_refresh_message = "Processing initial game data..."
-        tracker._run_pwstool(selected_side, Path(selected_pwstool_path))
-        state = tracker.state
-        _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
 
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
     combat_view = _load_major_combat_report_view(selected_side, selected_game_path)
@@ -1424,17 +1445,11 @@ def operations_page(
 @app.get("/toe")
 def toe_page(request: Request):
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
-
-    # On first page load, trigger initial pwstool run if there's data to process
-    if not app.state.startup_pwstool_triggered and tracker.should_run_pwstool_on_startup():
-        app.state.startup_pwstool_triggered = True
-        app.state.overlay_refresh_status = "running"
-        app.state.overlay_refresh_message = "Processing initial game data..."
-        tracker._run_pwstool(selected_side, Path(selected_pwstool_path))
-        state = tracker.state
-        _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
 
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
     toe = get_toe_data(selected_game_path, selected_side)
@@ -1461,17 +1476,11 @@ def toe_page(request: Request):
 @app.get("/shipyard")
 def shipyard_page(request: Request):
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
-
-    # On first page load, trigger initial pwstool run if there's data to process
-    if not app.state.startup_pwstool_triggered and tracker.should_run_pwstool_on_startup():
-        app.state.startup_pwstool_triggered = True
-        app.state.overlay_refresh_status = "running"
-        app.state.overlay_refresh_message = "Processing initial game data..."
-        tracker._run_pwstool(selected_side, Path(selected_pwstool_path))
-        state = tracker.state
-        _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
 
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
     shipyard = get_shipyard_data(selected_game_path, selected_side)
@@ -1503,8 +1512,11 @@ def data_page_for_side(
     file_name: str,
 ):
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
     folder_key = _side_folder_key(selected_side)
 
@@ -1599,8 +1611,11 @@ def _render_data_page(
 @app.get("/api/game-state", response_class=JSONResponse)
 def api_game_state():
     selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
-    tracker = _get_turn_tracker(selected_game_path)
-    state = tracker.update(selected_side, Path(selected_pwstool_path))
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
     _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
     return JSONResponse(
         {

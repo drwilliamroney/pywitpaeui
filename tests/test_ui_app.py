@@ -33,6 +33,7 @@ class UITests(unittest.TestCase):
         app.state.overlay_cache_pwstool_run_at = ""
         app.state.overlay_refresh_status = "not-started"
         app.state.overlay_refresh_message = "Overlay cache not generated yet"
+        app.state.startup_pwstool_bootstrap_keys = set()
 
         original_get = self.client.get
 
@@ -1224,15 +1225,24 @@ class UITests(unittest.TestCase):
             pwstool_dir = game_dir / "pwstool"
             pwstool_dir.mkdir(parents=True, exist_ok=True)
 
-            fake_tool = pwstool_dir / "pywitpaescraper.py"
+            fake_tool = pwstool_dir / "run_scraper.bat"
             fake_tool.write_text(
-                "from pathlib import Path\n"
-                "import sys\n"
-                "args = sys.argv\n"
-                "out_dir = Path(args[args.index('--output-dir') + 1])\n"
-                "out_dir.mkdir(parents=True, exist_ok=True)\n"
-                "(out_dir / 'turn.json').write_text('{\"ok\": true}', encoding='utf-8')\n"
-                "raise SystemExit(0)\n",
+                "@echo off\r\n"
+                "setlocal EnableExtensions\r\n"
+                "set \"OUT_DIR=\"\r\n"
+                ":parse\r\n"
+                "if \"%~1\"==\"\" goto write\r\n"
+                "if /I \"%~1\"==\"--output-dir\" (\r\n"
+                "  set \"OUT_DIR=%~2\"\r\n"
+                "  shift\r\n"
+                ")\r\n"
+                "shift\r\n"
+                "goto parse\r\n"
+                ":write\r\n"
+                "if not defined OUT_DIR exit /b 2\r\n"
+                "if not exist \"%OUT_DIR%\" mkdir \"%OUT_DIR%\"\r\n"
+                "> \"%OUT_DIR%\\turn.json\" echo {\"ok\": true}\r\n"
+                "exit /b 0\r\n",
                 encoding="utf-8",
             )
 
@@ -1302,7 +1312,66 @@ class UITests(unittest.TestCase):
             self.assertEqual(end_response.status_code, 200)
             payload = end_response.json()
             self.assertEqual(payload["pwstool_last_status"], "failed")
-            self.assertIn("Missing script", payload["pwstool_last_message"])
+            self.assertIn("Missing launcher", payload["pwstool_last_message"])
+
+    def test_startup_bootstrap_runs_scraper_once_on_first_load(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir = Path(tmp_dir)
+            save_dir = game_dir / "SAVE"
+            save_dir.mkdir(parents=True, exist_ok=True)
+            pwstool_dir = game_dir / "pwstool"
+            pwstool_dir.mkdir(parents=True, exist_ok=True)
+
+            (save_dir / "wpae002.pws").write_text("start", encoding="utf-8")
+            (save_dir / "wpae000.pws").write_text("end", encoding="utf-8")
+
+            fake_tool = pwstool_dir / "run_scraper.bat"
+            fake_tool.write_text(
+                "@echo off\r\n"
+                "setlocal EnableExtensions\r\n"
+                "set \"OUT_DIR=\"\r\n"
+                "set \"COUNT_FILE=%~dp0startup-count.txt\"\r\n"
+                ":parse\r\n"
+                "if \"%~1\"==\"\" goto run\r\n"
+                "if /I \"%~1\"==\"--output-dir\" (\r\n"
+                "  set \"OUT_DIR=%~2\"\r\n"
+                "  shift\r\n"
+                ")\r\n"
+                "shift\r\n"
+                "goto parse\r\n"
+                ":run\r\n"
+                "if not exist \"%COUNT_FILE%\" (echo 0>\"%COUNT_FILE%\")\r\n"
+                "set /p COUNT=<\"%COUNT_FILE%\"\r\n"
+                "set /a COUNT=%COUNT%+1\r\n"
+                ">\"%COUNT_FILE%\" echo %COUNT%\r\n"
+                "if not exist \"%OUT_DIR%\" mkdir \"%OUT_DIR%\"\r\n"
+                "> \"%OUT_DIR%\\turn.json\" echo {\"game_turn\": 7, \"scenario_name\": \"Test\"}\r\n"
+                "exit /b 0\r\n",
+                encoding="utf-8",
+            )
+
+            first_response = self.client.get(
+                "/map",
+                params={
+                    "game_path": str(game_dir),
+                    "pwstool_path": str(pwstool_dir),
+                    "side": "allies",
+                },
+            )
+            self.assertEqual(first_response.status_code, 200)
+            self.assertTrue((save_dir / "ALLIED" / "turn.json").exists())
+            self.assertEqual((pwstool_dir / "startup-count.txt").read_text(encoding="utf-8").strip(), "1")
+
+            second_response = self.client.get(
+                "/map",
+                params={
+                    "game_path": str(game_dir),
+                    "pwstool_path": str(pwstool_dir),
+                    "side": "allies",
+                },
+            )
+            self.assertEqual(second_response.status_code, 200)
+            self.assertEqual((pwstool_dir / "startup-count.txt").read_text(encoding="utf-8").strip(), "1")
 
 
 if __name__ == "__main__":
