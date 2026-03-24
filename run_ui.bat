@@ -27,6 +27,13 @@ if not exist "%~dp0deps\pywitpaescraper\pywitpaescraper.py" (
     )
 )
 
+echo Updating pywitpaescraper to tracked branch...
+git submodule update --init --recursive --remote --merge deps\pywitpaescraper
+if errorlevel 1 (
+    echo Failed to update pywitpaescraper submodule from remote branch.
+    goto :error
+)
+
 set "DEFAULT_SIDE=allies"
 set "DEFAULT_GAME_PATH=C:\Matrix Games\War in the Pacific Admiral's Edition"
 
