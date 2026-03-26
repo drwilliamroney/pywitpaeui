@@ -239,9 +239,9 @@
           <span class="damaged-ship-header">
             <span class="damaged-ship-location">
               {% if location_group.location == "At Sea" %}
-                {{ location_group.name }}
+                {{ location_group.name }} ({{ location_group.region }})
               {% else %}
-                {{ location_group.location }}
+                {{ location_group.location }} ({{ location_group.region }})
               {% endif %}
             </span>
             <span class="damaged-ship-count">({{ location_group.count }})</span>
@@ -273,7 +273,7 @@
       <details class="shipyard">
         <summary class="shipyard-summary">
           <span class="shipyard-header">
-            <span class="shipyard-name">{{ yard.base }}</span>
+            <span class="shipyard-name">{{ yard.base }} ({{ yard.region }})</span>
           </span>
           <span class="shipyard-stats">
             <span class="shipyard-tonnage">{{ '{:,}'.format(yard.in_repair_tonnage) }} / {{ '{:,}'.format(yard.tonnage) }}</span>

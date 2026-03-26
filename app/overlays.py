@@ -1636,10 +1636,12 @@ def get_shipyard_data(game_path: str, side: str) -> dict[str, Any]:
     
     Damaged ships are grouped by location (at sea via task force, or at base).
     Shipyards show tonnage capacity and ships currently under repair.
+    All groups are sorted by theater region.
     """
     # Load base info for shipyards
-    base_names: dict[int, str] = {}
-    shipyards: dict[str, dict[str, Any]] = {}  # base_name -> {tonnage, count, ships}
+    base_names: dict[int, str] = {}  # id -> name
+    base_coords: dict[int, tuple[int, int]] = {}  # id -> (x, y)
+    shipyards: dict[str, dict[str, Any]] = {}  # base_name -> {tonnage, count, ships, coords}
     
     for record in _load_json_records(_bases_path(game_path, side)):
         base_id = _safe_int(record.get("record_id"), 0)
@@ -1647,6 +1649,10 @@ def get_shipyard_data(game_path: str, side: str) -> dict[str, Any]:
             continue
         base_name = str(record.get("name") or "").strip() or f"Base {base_id}"
         base_names[base_id] = base_name
+        x = _safe_int(record.get("x"), None)
+        y = _safe_int(record.get("y"), None)
+        if x is not None and y is not None:
+            base_coords[base_id] = (x, y)
 
         # Support both scraper schemas:
         # 1) explicit tons (`ship_repair_capacity_tons`),
@@ -1671,16 +1677,19 @@ def get_shipyard_data(game_path: str, side: str) -> dict[str, Any]:
                 "tonnage": shipyard_tonnage,
                 "count": 0,
                 "ships": [],
+                "coords": (x, y) if (x is not None and y is not None) else None,
             }
 
     # Load task force info for at-sea groups
-    taskforces: dict[int, str] = {}  # tf_id -> flagship_name
+    taskforces: dict[int, dict[str, Any]] = {}  # tf_id -> {flagship, x, y}
     for record in _load_json_records(_taskforces_path(game_path, side)):
         tf_id = _safe_int(record.get("record_id"), 0)
         if tf_id == 0:
             continue
         flagship = str(record.get("flagship_name") or f"TF {tf_id}").strip()
-        taskforces[tf_id] = flagship
+        x = _safe_int(record.get("end_of_day_x"), None)
+        y = _safe_int(record.get("end_of_day_y"), None)
+        taskforces[tf_id] = {"flagship": flagship, "x": x, "y": y}
 
     # Load ships and categorize
     at_sea_damaged: dict[str, list[dict[str, Any]]] = {}  # tf_flagship -> [ships]
@@ -1773,10 +1782,12 @@ def get_shipyard_data(game_path: str, side: str) -> dict[str, Any]:
         tf_id = _safe_int(record.get("task_force_id"), 0)
         if tf_id > 0:
             # At sea in task force
-            tf_flagship = taskforces.get(tf_id, f"TF {tf_id}")
-            if tf_flagship not in at_sea_damaged:
-                at_sea_damaged[tf_flagship] = []
-            at_sea_damaged[tf_flagship].append(ship_info)
+            tf_info = taskforces.get(tf_id)
+            if tf_info:
+                flagship = tf_info["flagship"]
+                if flagship not in at_sea_damaged:
+                    at_sea_damaged[flagship] = []
+                at_sea_damaged[flagship].append(ship_info)
         else:
             # At base (but not in shipyard)
             base_id = _safe_int(record.get("stationed_at_base_id"), 0)
@@ -1789,47 +1800,82 @@ def get_shipyard_data(game_path: str, side: str) -> dict[str, Any]:
     # Format output
     damaged_ships = []
     
+    # Build a mapping from flagship name to tf_id and tf_info for quick lookup
+    flagship_to_tf: dict[str, tuple[int, dict[str, Any]]] = {}
+    for tf_id, tf_info in taskforces.items():
+        flagship_to_tf[tf_info["flagship"]] = (tf_id, tf_info)
+    
     # At-sea damaged ships
-    for flagship_name in sorted(at_sea_damaged.keys()):
+    for flagship_name in sorted(at_sea_damaged.keys(), key=lambda f: (flagship_to_tf.get(f, (-1, {}))[0], f)):
         ships = sorted(
             at_sea_damaged[flagship_name],
             key=lambda s: (-s["tonnage"], s["type"], s["name"]),
         )
-        tf_id = next((tid for tid, name in taskforces.items() if name == flagship_name), None)
-        display_name = f"{flagship_name} (TF{tf_id})" if tf_id is not None else flagship_name
+        # Get TF coordinates and compute region
+        region = _OUTSIDE_THEATER
+        if flagship_name in flagship_to_tf:
+            tf_id, tf_info = flagship_to_tf[flagship_name]
+            x = tf_info.get("x")
+            y = tf_info.get("y")
+            if x is not None and y is not None:
+                region = _classify_hex_region(x, y) or _OUTSIDE_THEATER
+            display_name = f"{flagship_name} (TF{tf_id})"
+        else:
+            display_name = flagship_name
+        
         damaged_ships.append({
             "location": "At Sea",
             "name": display_name,
+            "region": region,
             "count": len(ships),
             "ships": ships,
         })
 
     # At-base damaged ships (excluding those in shipyard)
-    for base_name in sorted(at_base_damaged.keys()):
+    for base_name in at_base_damaged.keys():
         ships = sorted(
             at_base_damaged[base_name],
             key=lambda s: (-s["tonnage"], s["type"], s["name"]),
         )
+        region = _OUTSIDE_THEATER
+        # Find base_id for this base_name to get coordinates
+        for bid, bname in base_names.items():
+            if bname == base_name and bid in base_coords:
+                x, y = base_coords[bid]
+                region = _classify_hex_region(x, y) or _OUTSIDE_THEATER
+                break
         damaged_ships.append({
             "location": base_name,
             "name": None,
+            "region": region,
             "count": len(ships),
             "ships": ships,
         })
 
+    # Sort damaged ships by region, then by location name
+    damaged_ships.sort(key=lambda g: (g["region"], g["location"] if g["name"] is None else g["name"]))
+
     # Format shipyards
     shipyard_list = []
-    for base_name in sorted(shipyards.keys()):
+    for base_name in shipyards.keys():
         yard = shipyards[base_name]
         yard["ships"].sort(key=lambda s: (-s["tonnage"], s["type"], s["name"]))
         in_repair_tonnage = sum(int(ship.get("tonnage", 0)) for ship in yard["ships"])
+        x, y = (yard.get("coords") or (None, None))
+        region = _OUTSIDE_THEATER
+        if x is not None and y is not None:
+            region = _classify_hex_region(x, y) or _OUTSIDE_THEATER
         shipyard_list.append({
             "base": base_name,
             "tonnage": yard["tonnage"],
             "in_repair_count": yard["count"],
             "in_repair_tonnage": in_repair_tonnage,
+            "region": region,
             "ships": yard["ships"],
         })
+
+    # Sort shipyards by region, then by base name
+    shipyard_list.sort(key=lambda y: (y["region"], y["base"]))
 
     return {
         "damaged_ships": damaged_ships,

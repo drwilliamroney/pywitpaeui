@@ -1,0 +1,809 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* ── Layout ─────────────────────────────────────────────── */
+  .ops-page {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 52px);
+    overflow: hidden;
+    padding: 0;
+  }
+
+  .ops-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10, 18, 28, 0.6);
+    flex-shrink: 0;
+  }
+
+  .ops-topbar h1 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #d4e8f7;
+    margin: 0;
+    letter-spacing: 0.03em;
+  }
+
+  .ops-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  /* ── Folder tabs (left column) ──────────────────────────── */
+  .ops-folders {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: #0a1624;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+  }
+
+  .ops-folder-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 10px 14px;
+    border: none;
+    border-left: 4px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+    letter-spacing: 0.02em;
+  }
+  .ops-folder-btn:hover { background: rgba(78, 165, 217, 0.08); color: var(--text); }
+  .ops-folder-btn.active { color: var(--text); background: rgba(78, 165, 217, 0.1); }
+  .ops-folder-btn.color-red    { border-left-color: var(--danger); }
+  .ops-folder-btn.color-green  { border-left-color: var(--ok); }
+  .ops-folder-btn.color-yellow { border-left-color: var(--warn); }
+
+  .ops-folder-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 10px;
+    background: rgba(255,255,255,.1);
+    color: var(--text);
+  }
+
+  /* ── Card list (second column) ──────────────────────────── */
+  .ops-card-list {
+    width: 200px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    background: #0c1a28;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    padding: 8px 0;
+  }
+
+  .ops-card-tab {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 9px 12px;
+    border: none;
+    border-left: 4px solid transparent;
+    background: transparent;
+    color: var(--muted);
+    font-size: 0.82rem;
+    cursor: pointer;
+    text-align: left;
+  }
+  .ops-card-tab:hover { background: rgba(78,165,217,.08); color: var(--text); }
+  .ops-card-tab.active { color: var(--text); background: rgba(78,165,217,.12); }
+  .ops-card-tab.color-red    { border-left-color: var(--danger); }
+  .ops-card-tab.color-green  { border-left-color: var(--ok); }
+  .ops-card-tab.color-yellow { border-left-color: var(--warn); }
+
+  .ops-card-tab-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .ops-card-empty {
+    padding: 12px;
+    color: var(--muted);
+    font-size: 0.78rem;
+    font-style: italic;
+  }
+
+  /* ── Detail panel (main area) ───────────────────────────── */
+  .ops-detail {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+  }
+
+  .ops-detail-empty {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-style: italic;
+    margin-top: 24px;
+  }
+
+  .ops-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+
+  .ops-card-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #d4e8f7;
+    margin: 0 0 2px;
+  }
+
+  .ops-card-meta {
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .ops-warning-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 12px;
+    border-radius: 5px;
+    background: rgba(209,139,71,.15);
+    border: 1px solid rgba(209,139,71,.35);
+    color: #f0b76a;
+    font-size: 0.8rem;
+    margin-bottom: 12px;
+  }
+
+  /* ── Enrichment tables ──────────────────────────────────── */
+  .ops-section-title {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 14px 0 5px;
+  }
+
+  .ops-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+  .ops-table th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ops-table td {
+    padding: 4px 8px;
+    border-bottom: 1px solid rgba(37,58,77,.5);
+    color: var(--text);
+  }
+  .ops-table tr:last-child td { border-bottom: none; }
+  .ops-table-empty {
+    font-size: 0.78rem;
+    color: var(--muted);
+    font-style: italic;
+    padding: 4px 4px 4px 0;
+  }
+
+  /* ── Buttons ────────────────────────────────────────────── */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: none;
+    border-radius: 5px;
+    padding: 5px 13px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-primary  { background: var(--accent); color: #fff; }
+  .btn-primary:hover { background: #3994c8; }
+  .btn-warn     { background: rgba(209,139,71,.25); color: #f0b76a; border: 1px solid rgba(209,139,71,.4); }
+  .btn-warn:hover { background: rgba(209,139,71,.4); }
+  .btn-danger   { background: rgba(202,95,95,.2); color: #e08888; border: 1px solid rgba(202,95,95,.35); }
+  .btn-danger:hover { background: rgba(202,95,95,.35); }
+
+  .ops-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Add Card Modal ─────────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0,0,0,.55);
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+
+  .modal-box {
+    background: #0d1e30;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    min-width: 360px;
+    max-width: 480px;
+    width: 100%;
+    position: relative;
+  }
+
+  .modal-title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #d4e8f7;
+    margin: 0 0 14px;
+  }
+
+  .form-group { margin-bottom: 12px; }
+  .form-group label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 4px; }
+  .form-group input[type="text"],
+  .form-group input[type="date"] {
+    width: 100%;
+    background: #091522;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 6px 10px;
+    font-size: 0.85rem;
+  }
+  .form-group input:focus { outline: 1px solid var(--accent); }
+
+  .radio-group { display: flex; gap: 14px; }
+  .radio-group label {
+    display: flex; align-items: center; gap: 5px;
+    font-size: 0.82rem; color: var(--text); cursor: pointer;
+  }
+
+  /* Target search area */
+  .target-field-row { display: flex; gap: 6px; }
+  .target-field-row input { flex: 1; }
+  .target-search-results {
+    position: absolute;
+    background: #0a1a28;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+    width: 100%;
+    z-index: 60;
+    margin-top: 2px;
+  }
+  .target-result-item {
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+    color: var(--text);
+  }
+  .target-result-item:hover { background: rgba(78,165,217,.15); }
+  .target-result-sub { font-size: 0.72rem; color: var(--muted); margin-top: 1px; }
+
+  .target-field-wrap { position: relative; flex: 1; }
+
+  .modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+  .btn-secondary { background: rgba(255,255,255,.07); color: var(--text); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: rgba(255,255,255,.13); }
+
+  /* ── Confirm dialog ─────────────────────────────────────── */
+  .confirm-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    background: rgba(0,0,0,.6);
+    align-items: center;
+    justify-content: center;
+  }
+  .confirm-overlay.open { display: flex; }
+  .confirm-box {
+    background: #0d1e30;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    min-width: 300px;
+    text-align: center;
+  }
+  .confirm-box p { font-size: 0.88rem; color: var(--text); margin: 0 0 16px; }
+  .confirm-footer { display: flex; justify-content: center; gap: 10px; }
+</style>
+
+<div class="ops-page">
+  <!-- Top bar -->
+  <div class="ops-topbar">
+    <h1>Operations</h1>
+    <button class="btn btn-primary" id="addCardBtn">+ Add Card</button>
+  </div>
+
+  <div class="ops-body">
+    <!-- Folder tabs -->
+    <div class="ops-folders" id="folderList"></div>
+
+    <!-- Card list within active folder -->
+    <div class="ops-card-list" id="cardList"></div>
+
+    <!-- Detail panel -->
+    <div class="ops-detail" id="detailPanel">
+      <div class="ops-detail-empty">Select a folder and card to view details.</div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Card Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal-box">
+    <div class="modal-title">Add Operation Card</div>
+
+    <div class="form-group">
+      <label>Name</label>
+      <input type="text" id="newCardName" placeholder="e.g. Operation Torch" maxlength="80">
+    </div>
+
+    <div class="form-group">
+      <label>Type</label>
+      <div class="radio-group">
+        <label><input type="radio" name="newCardMode" value="offense" checked> Offense</label>
+        <label><input type="radio" name="newCardMode" value="defense"> Defense</label>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Planned Date (optional)</label>
+      <input type="date" id="newCardDate" min="1939-01-01" max="1946-12-31">
+    </div>
+
+    <div class="form-group">
+      <label>Target Base</label>
+      <div class="target-field-row">
+        <div class="target-field-wrap">
+          <input type="text" id="newCardTarget" placeholder="Type to search…" autocomplete="off">
+          <div class="target-search-results" id="targetResults" style="display:none"></div>
+        </div>
+        <button class="btn btn-secondary" id="searchBaseBtn" type="button">Search</button>
+      </div>
+      <input type="hidden" id="newCardTargetConfirmed">
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="cancelModal">Cancel</button>
+      <button class="btn btn-primary" id="saveNewCard">Add Card</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete -->
+<div class="confirm-overlay" id="confirmDelete">
+  <div class="confirm-box">
+    <p>Cancel this operation?</p>
+    <div class="confirm-footer">
+      <button class="btn btn-danger" id="confirmDeleteYes">Yes, Cancel</button>
+      <button class="btn btn-secondary" id="confirmDeleteNo">No</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Initial data seeded from server ──────────────────────────────────────
+  const INITIAL = {{ operations_view | tojson }};
+  const GAME_DATE = {{ game_date | tojson }};
+
+  // ── State ────────────────────────────────────────────────────────────────
+  let view = JSON.parse(JSON.stringify(INITIAL));
+  let activeFolderMode = null;
+  let activeCardId     = null;
+  let pendingDeleteId  = null;
+
+  // ── DOM refs ─────────────────────────────────────────────────────────────
+  const folderListEl  = document.getElementById('folderList');
+  const cardListEl    = document.getElementById('cardList');
+  const detailEl      = document.getElementById('detailPanel');
+  const addModal      = document.getElementById('addModal');
+  const confirmDel    = document.getElementById('confirmDelete');
+  const targetInput   = document.getElementById('newCardTarget');
+  const targetResults = document.getElementById('targetResults');
+
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function parseMmDdYy(s) {
+    // Convert game_date mm/dd/yy → Date for diff calculation only
+    if (!s) return null;
+    const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (!m) return null;
+    return new Date(1900 + parseInt(m[3], 10), parseInt(m[1], 10) - 1, parseInt(m[2], 10));
+  }
+
+  function daysBetweenDates(gameDateMmDdYy, plannedDateIso) {
+    const d1 = parseMmDdYy(gameDateMmDdYy);
+    const d2 = plannedDateIso ? new Date(plannedDateIso + 'T00:00:00') : null;
+    if (!d1 || !d2) return null;
+    return Math.round((d2 - d1) / 86400000);
+  }
+
+  function colorClass(c) {
+    return c === 'yellow' ? 'color-yellow' : c === 'red' ? 'color-red' : 'color-green';
+  }
+
+  function activeFolder() {
+    return view.folders.find(f => f.mode === activeFolderMode) || null;
+  }
+
+  function activeCard() {
+    const f = activeFolder();
+    if (!f) return null;
+    return f.cards.find(c => c.id === activeCardId) || null;
+  }
+
+  // ── Render folders ───────────────────────────────────────────────────────
+  function renderFolders() {
+    folderListEl.innerHTML = '';
+    view.folders.forEach(folder => {
+      const btn = document.createElement('button');
+      btn.className = `ops-folder-btn ${colorClass(folder.color)} ${folder.mode === activeFolderMode ? 'active' : ''}`;
+      btn.innerHTML = `<span>${esc(folder.label)}</span><span class="ops-folder-badge">${folder.count}</span>`;
+      btn.addEventListener('click', () => {
+        activeFolderMode = folder.mode;
+        activeCardId = null;
+        renderAll();
+      });
+      folderListEl.appendChild(btn);
+    });
+  }
+
+  // ── Render card list ─────────────────────────────────────────────────────
+  function renderCardList() {
+    cardListEl.innerHTML = '';
+    const folder = activeFolder();
+    if (!folder) return;
+
+    if (!folder.cards.length) {
+      const el = document.createElement('div');
+      el.className = 'ops-card-empty';
+      el.textContent = 'No cards in this folder.';
+      cardListEl.appendChild(el);
+      return;
+    }
+
+    folder.cards.forEach(card => {
+      const btn = document.createElement('button');
+      btn.className = `ops-card-tab ${colorClass(card.status_color)} ${card.id === activeCardId ? 'active' : ''}`;
+      btn.innerHTML = `<span class="ops-card-tab-name">${esc(card.name)}</span>`;
+      btn.addEventListener('click', () => {
+        activeCardId = card.id;
+        renderDetail();
+        renderCardList();
+        renderFolders();
+      });
+      cardListEl.appendChild(btn);
+    });
+  }
+
+  // ── Render detail ────────────────────────────────────────────────────────
+  function renderDetail() {
+    const card = activeCard();
+    if (!card) {
+      detailEl.innerHTML = '<div class="ops-detail-empty">Select a card to view details.</div>';
+      return;
+    }
+
+    let html = '';
+
+    // Warning banner (yellow cards)
+    if (card.status_color === 'yellow' && card.warning_reason) {
+      html += `<div class="ops-warning-banner">⚠ ${esc(card.warning_reason)}</div>`;
+    }
+
+    // Header
+    const targetCoords = (card.target_x != null && card.target_y != null)
+      ? ` (${card.target_x},${card.target_y})` : '';
+    html += `
+      <div class="ops-card-header">
+        <div>
+          <div class="ops-card-title">${esc(card.name)}</div>
+          <div class="ops-card-meta">
+            ${esc(card.mode === 'offense' ? 'Offense' : 'Defense')} &nbsp;·&nbsp;
+            Target: <strong>${esc(card.target_base_name)}${esc(targetCoords)}</strong>
+${(() => {
+              if (!card.planned_date) return '';
+              const days = daysBetweenDates(GAME_DATE, card.planned_date);
+              const dayStr = days !== null ? ` (${days} day${days === 1 ? '' : 's'})` : '';
+              return ` &nbsp;·&nbsp; Planned: ${esc(card.planned_date)}${esc(dayStr)}`;
+            })()}
+          </div>
+        </div>
+        <div class="ops-card-actions">
+          ${card.status_color === 'yellow' && card.switch_to_label
+            ? `<button class="btn btn-warn" data-switch="${esc(card.id)}">Switch to ${esc(card.switch_to_label)}</button>`
+            : ''}
+          <button class="btn btn-danger" data-delete="${esc(card.id)}">Cancel Operation</button>
+        </div>
+      </div>`;
+
+    // Task Forces
+    html += `<div class="ops-section-title">Task Forces</div>`;
+    if (card.task_forces && card.task_forces.length) {
+      html += `
+        <table class="ops-table">
+          <thead><tr>
+            <th>Flagship</th><th>Mission</th><th>Location</th><th>Distance (hex)</th>
+          </tr></thead>
+          <tbody>`;
+      card.task_forces.forEach(tf => {
+        html += `<tr>
+          <td>${esc(tf.flagship)}</td>
+          <td>${esc(tf.mission)}</td>
+          <td>(${esc(tf.location_x)},${esc(tf.location_y)})</td>
+          <td>${esc(tf.distance_hexes)}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="ops-table-empty">No task forces found at or approaching this target.</div>`;
+    }
+
+    // Ground Forces
+    html += `<div class="ops-section-title">Ground Forces</div>`;
+    if (card.ground_units && card.ground_units.length) {
+      html += `
+        <table class="ops-table">
+          <thead><tr>
+            <th>Type</th><th>Name</th><th>Location</th><th>% Prepared</th>
+          </tr></thead>
+          <tbody>`;
+      card.ground_units.forEach(gu => {
+        html += `<tr>
+          <td>${esc(gu.unit_type)}</td>
+          <td>${esc(gu.name)}</td>
+          <td>${esc(gu.location)}</td>
+          <td>${esc(gu.prep_percent)}%</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+    } else {
+      html += `<div class="ops-table-empty">No ground units preparing for this target.</div>`;
+    }
+
+    // Air Groups (defense only)
+    if (card.mode === 'defense') {
+      html += `<div class="ops-section-title">Air Groups</div>`;
+      if (card.air_groups && card.air_groups.length) {
+        html += `
+          <table class="ops-table">
+            <thead><tr>
+              <th>Name</th><th>Aircraft Type</th><th>Current Location</th>
+            </tr></thead>
+            <tbody>`;
+        card.air_groups.forEach(ag => {
+          html += `<tr>
+            <td>${esc(ag.name)}</td>
+            <td>${esc(ag.aircraft_type)}</td>
+            <td>${esc(ag.location)}</td>
+          </tr>`;
+        });
+        html += `</tbody></table>`;
+      } else {
+        html += `<div class="ops-table-empty">No air groups on TF ships or moving to this target.</div>`;
+      }
+    }
+
+    detailEl.innerHTML = html;
+
+    // Bind action buttons
+    detailEl.querySelectorAll('[data-delete]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        pendingDeleteId = btn.dataset.delete;
+        confirmDel.classList.add('open');
+      });
+    });
+
+    detailEl.querySelectorAll('[data-switch]').forEach(btn => {
+      btn.addEventListener('click', () => switchCard(btn.dataset.switch));
+    });
+  }
+
+  function renderAll() {
+    renderFolders();
+    renderCardList();
+    renderDetail();
+  }
+
+  // ── Mutations ────────────────────────────────────────────────────────────
+  async function refreshView() {
+    try {
+      const resp = await fetch('/api/operations');
+      if (!resp.ok) return;
+      view = await resp.json();
+      // Find active folder / card (may have changed)
+      if (activeFolderMode && !view.folders.find(f => f.mode === activeFolderMode)) {
+        activeFolderMode = null;
+        activeCardId = null;
+      }
+      if (activeCardId) {
+        const f = activeFolder();
+        if (!f || !f.cards.find(c => c.id === activeCardId)) {
+          activeCardId = f && f.cards.length ? f.cards[0].id : null;
+        }
+      }
+    } catch(e) { console.error('refreshView', e); }
+    renderAll();
+  }
+
+  async function deleteCard(id) {
+    try {
+      await fetch(`/api/operations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch(e) { console.error('deleteCard', e); }
+    if (activeCardId === id) activeCardId = null;
+    await refreshView();
+  }
+
+  async function switchCard(id) {
+    try {
+      await fetch(`/api/operations/${encodeURIComponent(id)}/switch`, { method: 'POST' });
+    } catch(e) { console.error('switchCard', e); }
+    await refreshView();
+  }
+
+  // ── Confirm delete dialog ─────────────────────────────────────────────────
+  document.getElementById('confirmDeleteYes').addEventListener('click', async () => {
+    confirmDel.classList.remove('open');
+    if (pendingDeleteId) await deleteCard(pendingDeleteId);
+    pendingDeleteId = null;
+  });
+  document.getElementById('confirmDeleteNo').addEventListener('click', () => {
+    confirmDel.classList.remove('open');
+    pendingDeleteId = null;
+  });
+
+  // ── Add Card Modal ────────────────────────────────────────────────────────
+  document.getElementById('addCardBtn').addEventListener('click', () => {
+    document.getElementById('newCardName').value = '';
+    document.getElementById('newCardDate').value = '';
+    targetInput.value = '';
+    document.getElementById('newCardTargetConfirmed').value = '';
+    targetResults.style.display = 'none';
+    document.querySelector('[name="newCardMode"][value="offense"]').checked = true;
+    addModal.classList.add('open');
+  });
+
+  document.getElementById('cancelModal').addEventListener('click', () => {
+    addModal.classList.remove('open');
+  });
+
+  addModal.addEventListener('click', e => {
+    if (e.target === addModal) addModal.classList.remove('open');
+  });
+
+  document.getElementById('saveNewCard').addEventListener('click', async () => {
+    const name = document.getElementById('newCardName').value.trim();
+    const mode = document.querySelector('[name="newCardMode"]:checked')?.value || 'offense';
+    const planned_date = document.getElementById('newCardDate').value;
+    const target_base_name = (document.getElementById('newCardTargetConfirmed').value || targetInput.value).trim();
+
+    if (!name) { alert('Please enter a card name.'); return; }
+    if (!target_base_name) { alert('Please select a target base.'); return; }
+
+
+    try {
+      const resp = await fetch('/api/operations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, mode, planned_date, target_base_name }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({detail: 'Unknown error'}));
+        alert('Error: ' + (err.detail || 'Failed to create card'));
+        return;
+      }
+      const card = await resp.json();
+      addModal.classList.remove('open');
+      // Switch to the right folder and select the new card
+      activeFolderMode = card.mode;
+      activeCardId = card.id;
+      await refreshView();
+    } catch(e) {
+      alert('Network error: ' + e.message);
+    }
+  });
+
+  // ── Base search in modal ──────────────────────────────────────────────────
+  let searchDebounce = null;
+
+  function getSelectedMode() {
+    return document.querySelector('[name="newCardMode"]:checked')?.value || 'offense';
+  }
+
+  async function runBaseSearch(q) {
+    const mode = getSelectedMode();
+    const url = `/api/operations/base-search?mode=${encodeURIComponent(mode)}&q=${encodeURIComponent(q)}`;
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) return [];
+      return await resp.json();
+    } catch(e) { return []; }
+  }
+
+  function showBaseResults(results) {
+    targetResults.innerHTML = '';
+    if (!results.length) {
+      targetResults.style.display = 'none';
+      return;
+    }
+    results.forEach(base => {
+      const item = document.createElement('div');
+      item.className = 'target-result-item';
+      item.innerHTML = `${esc(base.name)}<div class="target-result-sub">${esc(base.owner || '')} ${base.x != null ? `(${base.x},${base.y})` : ''}</div>`;
+      item.addEventListener('mousedown', e => {
+        e.preventDefault();
+        targetInput.value = base.name;
+        document.getElementById('newCardTargetConfirmed').value = base.name;
+        targetResults.style.display = 'none';
+      });
+      targetResults.appendChild(item);
+    });
+    targetResults.style.display = 'block';
+  }
+
+  targetInput.addEventListener('input', () => {
+    document.getElementById('newCardTargetConfirmed').value = '';
+    clearTimeout(searchDebounce);
+    const q = targetInput.value.trim();
+    if (!q) { targetResults.style.display = 'none'; return; }
+    searchDebounce = setTimeout(async () => {
+      const results = await runBaseSearch(q);
+      showBaseResults(results);
+    }, 220);
+  });
+
+  targetInput.addEventListener('blur', () => {
+    setTimeout(() => { targetResults.style.display = 'none'; }, 150);
+  });
+
+  document.getElementById('searchBaseBtn').addEventListener('click', async () => {
+    const results = await runBaseSearch(targetInput.value.trim());
+    showBaseResults(results);
+    if (results.length) targetInput.focus();
+  });
+
+  // Reload results when mode radio changes (offense = enemy bases, defense = friendly)
+  document.querySelectorAll('[name="newCardMode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.getElementById('newCardTargetConfirmed').value = '';
+      targetInput.value = '';
+      targetResults.style.display = 'none';
+    });
+  });
+
+  // ── Init ─────────────────────────────────────────────────────────────────
+  if (view.folders.length) {
+    activeFolderMode = view.folders[0].mode;
+    if (view.folders[0].cards.length) {
+      activeCardId = view.folders[0].cards[0].id;
+    }
+  }
+  renderAll();
+</script>
+{% endblock %}

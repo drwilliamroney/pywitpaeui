@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 import json
 import re
@@ -7,6 +8,7 @@ from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Optional
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -76,6 +78,24 @@ COMBAT_CARRIER_AIRCRAFT_PATTERN = re.compile(
     r"Avenger|Dauntless|Helldiver|Wildcat|Corsair|Hellcat|Kate|Val"
     r")\b",
     re.IGNORECASE,
+)
+
+# ---------------------------------------------------------------------------
+# Operations constants
+# ---------------------------------------------------------------------------
+OPERATIONS_FILE_NAME = "operations.json"
+OPERATIONS_FOLDER_ORDER = ("offense", "defense")
+OPERATIONS_MODE_LABELS = {"offense": "Offense", "defense": "Defense"}
+OPERATIONS_FOLDER_COLORS = {"offense": "red", "defense": "green"}
+ALLIED_OWNER_MARKERS = (
+    "ALLIED", "ALLIES", "USA", "USN", "USMC", "COMMONWEALTH", "BRITISH",
+    "AUSTRALIA", "AUSTRALIAN", "ANZAC", "CHINA", "CHINESE", "DUTCH",
+    "INDIA", "INDIAN", "NEW ZEALAND", "NZ", "RAF", "RAAF", "ROYAL NAVY",
+    "RN", "USNAVY", "USARMY", "USMARINES", "USAAF", "CANADIAN", "RCAF",
+    "RNZAF", "RNZN", "RNAF", "RNEIAF", "KNIL",
+)
+JAPANESE_OWNER_MARKERS = (
+    "JAPAN", "JAPANESE", "IJARMY", "IJNAVY", "IJA", "IJN",
 )
 COMBAT_TYPE_PRIORITY = {
     "Amphibious Invasion": 0,
@@ -283,6 +303,11 @@ def _refresh_overlay_cache(selected_side: str, selected_game_path: str, reason: 
     app.state.overlay_cache_generated_at = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
     if pwstool_run_at:
         app.state.overlay_cache_pwstool_run_at = pwstool_run_at
+    selected_side, selected_game_path, _ = _get_runtime_config()
+    try:
+        _refresh_operations_status(selected_side, selected_game_path)
+    except Exception:  # noqa: BLE001 – non-critical background task
+        pass
     app.state.overlay_refresh_status = "success"
     app.state.overlay_refresh_message = f"Overlay cache refreshed ({reason})"
     return True
@@ -906,6 +931,483 @@ def _extract_list_of_objects(payload: object) -> list[dict[str, Any]] | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Operations – persistence helpers
+# ---------------------------------------------------------------------------
+
+def _normalize_operation_mode(value: object) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized not in {"offense", "defense"}:
+        raise HTTPException(status_code=400, detail=f"Invalid mode '{value}'. Must be 'offense' or 'defense'.")
+    return normalized
+
+
+def _operations_path(side: str, game_path: str) -> Path:
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    return Path(game_path) / "SAVE" / folder / OPERATIONS_FILE_NAME
+
+
+def _empty_operations_payload() -> dict[str, Any]:
+    return {"version": 1, "updated_at": "", "cards": []}
+
+
+def _coerce_operations_cards(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _read_operations_payload(side: str, game_path: str) -> dict[str, Any]:
+    path = _operations_path(side, game_path)
+    if not path.exists():
+        return _empty_operations_payload()
+    try:
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            return _empty_operations_payload()
+        data["cards"] = _coerce_operations_cards(data.get("cards"))
+        return data
+    except (OSError, json.JSONDecodeError):
+        return _empty_operations_payload()
+
+
+def _write_operations_payload(side: str, game_path: str, payload: dict[str, Any]) -> None:
+    path = _operations_path(side, game_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload["updated_at"] = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+    path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Operations – base ownership helpers
+# ---------------------------------------------------------------------------
+
+def _load_base_records_for_side(side: str, game_path: str) -> list[dict[str, Any]]:
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    base_path = Path(game_path) / "SAVE" / folder / "bases.json"
+    if not base_path.exists():
+        return []
+    try:
+        payload, _ = _load_json_payload(base_path)
+    except (OSError, ValueError):
+        return []
+    return _extract_list_of_objects(payload) or []
+
+
+def _classify_base_alignment(owner: str, side: str) -> str:
+    upper = owner.strip().upper()
+    for marker in ALLIED_OWNER_MARKERS:
+        if marker in upper:
+            return "friendly" if side == "allies" else "enemy"
+    for marker in JAPANESE_OWNER_MARKERS:
+        if marker in upper:
+            return "enemy" if side == "allies" else "friendly"
+    return "unknown"
+
+
+def _load_base_ownership_index(side: str, game_path: str) -> dict[str, dict[str, Any]]:
+    index: dict[str, dict[str, Any]] = {}
+    for record in _load_base_records_for_side(side, game_path):
+        name = str(record.get("name") or "").strip()
+        if not name:
+            continue
+        owner = str(record.get("nation") or record.get("owner") or record.get("controller") or "").strip()
+        alignment = _classify_base_alignment(owner, side)
+        norm = _normalize_lookup_name(name)
+        coords_x = _to_int(record.get("x"))
+        coords_y = _to_int(record.get("y"))
+        index[norm] = {
+            "name": name,
+            "owner": owner,
+            "alignment": alignment,
+            "x": coords_x,
+            "y": coords_y,
+        }
+    return index
+
+
+# ---------------------------------------------------------------------------
+# Operations – status calculation
+# ---------------------------------------------------------------------------
+
+def _build_operation_warning_reason(mode: str, target_name: str, alignment: str, owner: str) -> str:
+    if mode == "offense" and alignment != "enemy":
+        return f"{target_name} is now {owner or alignment} — no longer enemy"
+    if mode == "defense" and alignment != "friendly":
+        return f"{target_name} is now {owner or alignment} — no longer friendly"
+    return ""
+
+
+def _refresh_operations_status(side: str, game_path: str) -> None:
+    payload = _read_operations_payload(side, game_path)
+    cards = payload.get("cards", [])
+    if not cards:
+        return
+
+    base_index = _load_base_ownership_index(side, game_path)
+    changed = False
+
+    for card in cards:
+        mode = str(card.get("mode") or "offense")
+        target_name = str(card.get("target_base_name") or "")
+        norm_target = _normalize_lookup_name(target_name)
+        base_info = base_index.get(norm_target)
+
+        if base_info:
+            alignment = base_info["alignment"]
+            owner = base_info["owner"]
+        else:
+            alignment = "unknown"
+            owner = ""
+
+        warning_reason = _build_operation_warning_reason(mode, target_name, alignment, owner)
+        is_warned = bool(warning_reason)
+        new_color = "yellow" if is_warned else OPERATIONS_FOLDER_COLORS.get(mode, "green")
+
+        if (
+            card.get("status_color") != new_color
+            or card.get("status") != ("warning" if is_warned else "normal")
+            or card.get("warning_reason") != warning_reason
+        ):
+            card["status_color"] = new_color
+            card["status"] = "warning" if is_warned else "normal"
+            card["warning_reason"] = warning_reason
+            card["switch_to_mode"] = ("defense" if mode == "offense" else "offense") if is_warned else ""
+            card["switch_to_label"] = (
+                OPERATIONS_MODE_LABELS["defense"] if mode == "offense" else OPERATIONS_MODE_LABELS["offense"]
+            ) if is_warned else ""
+            changed = True
+
+    if changed:
+        _write_operations_payload(side, game_path, payload)
+
+
+# ---------------------------------------------------------------------------
+# Operations – enrichment helpers (task forces, ground units, air groups)
+# ---------------------------------------------------------------------------
+
+def _hex_distance(x1: int, y1: int, x2: int, y2: int) -> float:
+    import math as _math
+    return _math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
+
+
+def _load_taskforces_for_target(side: str, game_path: str, target_x: int, target_y: int) -> list[dict[str, Any]]:
+    """Return task forces for offense card — includes all non-logistics TFs with distance to target."""
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    tf_path = Path(game_path) / "SAVE" / folder / "taskforces.json"
+    if not tf_path.exists():
+        return []
+    try:
+        payload, _ = _load_json_payload(tf_path)
+    except (OSError, ValueError):
+        return []
+    records = _extract_list_of_objects(payload) or []
+    LOGISTICS_MISSIONS = {"CARGO", "TANKER"}
+    results: list[dict[str, Any]] = []
+    for tf in records:
+        mission = str(tf.get("mission") or "").strip().upper()
+        if mission in LOGISTICS_MISSIONS:
+            continue
+        # Only include task forces actually targeting this location
+        tf_target_x = _to_int(tf.get("target_x"))
+        tf_target_y = _to_int(tf.get("target_y"))
+        if tf_target_x != target_x or tf_target_y != target_y:
+            continue
+        eod_x = _to_int(tf.get("end_of_day_x"))
+        eod_y = _to_int(tf.get("end_of_day_y"))
+        if eod_x is None or eod_y is None:
+            continue
+        distance = _hex_distance(eod_x, eod_y, target_x, target_y)
+        results.append({
+            "flagship": str(tf.get("flagship_name") or ""),
+            "mission": str(tf.get("mission") or ""),
+            "location_x": eod_x,
+            "location_y": eod_y,
+            "distance_hexes": math.ceil(distance),
+            "record_id": _to_int(tf.get("record_id")),
+        })
+    results.sort(key=lambda r: r["distance_hexes"])
+    return results
+
+
+def _load_ground_units_for_target(side: str, game_path: str, target_base_name: str, target_x: int | None = None, target_y: int | None = None) -> list[dict[str, Any]]:
+    """Return ground units that are preparing for the named target base."""
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    gu_path = Path(game_path) / "SAVE" / folder / "ground_units.json"
+    if not gu_path.exists():
+        return []
+    try:
+        payload, _ = _load_json_payload(gu_path)
+    except (OSError, ValueError):
+        return []
+    records = _extract_list_of_objects(payload) or []
+    norm_target = _normalize_lookup_name(target_base_name)
+    results: list[dict[str, Any]] = []
+    for unit in records:
+        prep_target = str(unit.get("prep_target_name") or "").strip()
+        if not prep_target:
+            continue
+        if _normalize_lookup_name(prep_target) != norm_target:
+            continue
+        eod_x = _to_int(unit.get("end_of_day_x"))
+        eod_y = _to_int(unit.get("end_of_day_y"))
+        # Determine current location label
+        base_name = str(unit.get("stationed_at_base_name") or "").strip()
+        if base_name:
+            if target_x is not None and target_y is not None and eod_x is not None and eod_y is not None:
+                dist = math.ceil(_hex_distance(eod_x, eod_y, target_x, target_y))
+                location_label = f"{base_name} ({dist} hex)"
+            else:
+                location_label = base_name
+        elif eod_x is not None and eod_y is not None:
+            if target_x is not None and target_y is not None:
+                dist = math.ceil(_hex_distance(eod_x, eod_y, target_x, target_y))
+                location_label = f"({eod_x},{eod_y}) ({dist} hex)"
+            else:
+                location_label = f"({eod_x},{eod_y})"
+        else:
+            location_label = ""
+        results.append({
+            "unit_type": str(unit.get("unit_type_name") or ""),
+            "name": str(unit.get("name") or ""),
+            "location": location_label,
+            "location_x": eod_x,
+            "location_y": eod_y,
+            "prep_percent": _to_int(unit.get("prep_percent")) or 0,
+        })
+    results.sort(key=lambda r: (-r["prep_percent"], r["name"]))
+    return results
+
+
+def _load_ships_by_tf_id(side: str, game_path: str) -> dict[int, list[dict[str, Any]]]:
+    """Build index of {tf_id: [ship_record, ...]} from ships.json."""
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    ship_path = Path(game_path) / "SAVE" / folder / "ships.json"
+    if not ship_path.exists():
+        return {}
+    try:
+        payload, _ = _load_json_payload(ship_path)
+    except (OSError, ValueError):
+        return {}
+    records = _extract_list_of_objects(payload) or []
+    index: dict[int, list[dict[str, Any]]] = {}
+    for ship in records:
+        tf_id = _to_int(ship.get("task_force_id"))
+        if tf_id is None or tf_id == 0:
+            continue
+        index.setdefault(tf_id, []).append(ship)
+    return index
+
+
+def _airgroup_location_label(ag: dict[str, Any], ship_to_flagship: dict[int, str] | None = None) -> str:
+    if ag.get("stationed_at_base_name"):
+        return str(ag["stationed_at_base_name"])
+    if ag.get("loaded_on_ship_name"):
+        ship_name = str(ag["loaded_on_ship_name"])
+        flagship = (ship_to_flagship or {}).get(_to_int(ag.get("loaded_on_ship_id")), "")
+        suffix = f" [TF {flagship}]" if flagship else ""
+        return f"On {ship_name}{suffix}"
+    if ag.get("loaded_as_cargo_on_ship_name"):
+        ship_name = str(ag["loaded_as_cargo_on_ship_name"])
+        flagship = (ship_to_flagship or {}).get(_to_int(ag.get("loaded_as_cargo_on_ship_id")), "")
+        suffix = f" [TF {flagship}]" if flagship else ""
+        return f"Cargo on {ship_name}{suffix}"
+    if ag.get("is_rebasing") and ag.get("rebase_target_base_name"):
+        return f"In transit → {ag['rebase_target_base_name']}"
+    x = _to_int(ag.get("x"))
+    y = _to_int(ag.get("y"))
+    if x is not None and y is not None:
+        return f"({x},{y})"
+    return ""
+
+
+def _load_airgroups_for_defense_target(
+    side: str,
+    game_path: str,
+    target_base_name: str,
+    target_x: int | None,
+    target_y: int | None,
+    tf_ship_ids: set[int],
+    ship_to_flagship: dict[int, str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Return air groups for a defense card:
+      1. Any air group loaded on a ship in the task forces list.
+      2. Any air group rebasing to the target base.
+    """
+    folder = "ALLIED" if side == "allies" else "JAPAN"
+    ag_path = Path(game_path) / "SAVE" / folder / "airgroups.json"
+    if not ag_path.exists():
+        return []
+    try:
+        payload, _ = _load_json_payload(ag_path)
+    except (OSError, ValueError):
+        return []
+    records = _extract_list_of_objects(payload) or []
+    norm_target = _normalize_lookup_name(target_base_name)
+
+    seen: set[int] = set()
+    results: list[dict[str, Any]] = []
+
+    for ag in records:
+        rec_id = _to_int(ag.get("record_id"))
+        if rec_id is not None and rec_id in seen:
+            continue
+
+        include = False
+        source = ""
+
+        # Check if organic to a ship in one of the TFs
+        loaded_id = _to_int(ag.get("loaded_on_ship_id"))
+        cargo_id = _to_int(ag.get("loaded_as_cargo_on_ship_id"))
+        if (loaded_id is not None and loaded_id in tf_ship_ids) or \
+           (cargo_id is not None and cargo_id in tf_ship_ids):
+            include = True
+            source = "on-tf-ship"
+
+        # Check if rebasing toward the target base
+        if not include and ag.get("is_rebasing"):
+            rebase_norm = _normalize_lookup_name(str(ag.get("rebase_target_base_name") or ""))
+            if rebase_norm == norm_target:
+                include = True
+                source = "rebasing-to-target"
+            elif target_x is not None and target_y is not None:
+                rx = _to_int(ag.get("rebase_target_x"))
+                ry = _to_int(ag.get("rebase_target_y"))
+                if rx == target_x and ry == target_y:
+                    include = True
+                    source = "rebasing-to-target"
+
+        if not include:
+            continue
+
+        if rec_id is not None:
+            seen.add(rec_id)
+
+        results.append({
+            "name": str(ag.get("name") or ""),
+            "aircraft_type": str(ag.get("aircraft_name") or ag.get("aircraft_type_name") or ""),
+            "location": _airgroup_location_label(ag, ship_to_flagship),
+            "source": source,
+        })
+
+    results.sort(key=lambda r: (r["source"], r["name"]))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Operations – view builder
+# ---------------------------------------------------------------------------
+
+def _build_operations_view(side: str, game_path: str) -> dict[str, Any]:
+    """Build full operations view with folders, cards, and enrichment data."""
+    _refresh_operations_status(side, game_path)
+    payload = _read_operations_payload(side, game_path)
+    cards = payload.get("cards", [])
+
+    # Pre-build ship-by-TF index (loaded once, used per card)
+    ships_by_tf = _load_ships_by_tf_id(side, game_path)
+
+    # Load base ownership index for coordinates
+    base_index = _load_base_ownership_index(side, game_path)
+
+    folders: list[dict[str, Any]] = []
+    total_cards = 0
+
+    for folder_mode in OPERATIONS_FOLDER_ORDER:
+        folder_cards_raw = [c for c in cards if str(c.get("mode") or "") == folder_mode]
+        folder_color = OPERATIONS_FOLDER_COLORS[folder_mode]
+        any_yellow = any(c.get("status_color") == "yellow" for c in folder_cards_raw)
+        if any_yellow:
+            folder_color = "yellow"
+
+        enriched_cards: list[dict[str, Any]] = []
+        for card in folder_cards_raw:
+            target_name = str(card.get("target_base_name") or "")
+            norm_target = _normalize_lookup_name(target_name)
+            base_info = base_index.get(norm_target, {})
+            target_x = base_info.get("x")
+            target_y = base_info.get("y")
+
+            # Task forces
+            task_forces: list[dict[str, Any]] = []
+            if target_x is not None and target_y is not None:
+                task_forces = _load_taskforces_for_target(side, game_path, target_x, target_y)
+
+            # Collect ship IDs in those TFs (for airgroup lookup)
+            tf_ship_ids: set[int] = set()
+            ship_to_flagship: dict[int, str] = {}
+            for tf in task_forces:
+                tf_id = tf.get("record_id")
+                flagship = tf.get("flagship", "")
+                if tf_id is not None:
+                    for ship in ships_by_tf.get(tf_id, []):
+                        sid = _to_int(ship.get("record_id"))
+                        if sid is not None:
+                            tf_ship_ids.add(sid)
+                            if flagship:
+                                ship_to_flagship[sid] = flagship
+
+            # Ground units
+            ground_units = _load_ground_units_for_target(side, game_path, target_name, target_x, target_y)
+
+            # Air groups (defense only for now, but built for both so template can decide)
+            air_groups: list[dict[str, Any]] = []
+            if folder_mode == "defense":
+                air_groups = _load_airgroups_for_defense_target(
+                    side, game_path, target_name, target_x, target_y, tf_ship_ids, ship_to_flagship
+                )
+
+            enriched = dict(card)
+            enriched["target_x"] = target_x
+            enriched["target_y"] = target_y
+            enriched["task_forces"] = task_forces
+            enriched["ground_units"] = ground_units
+            enriched["air_groups"] = air_groups
+            enriched_cards.append(enriched)
+            total_cards += 1
+
+        folders.append({
+            "mode": folder_mode,
+            "label": OPERATIONS_MODE_LABELS[folder_mode],
+            "color": folder_color,
+            "count": len(folder_cards_raw),
+            "cards": enriched_cards,
+        })
+
+    return {
+        "updated_at": payload.get("updated_at", ""),
+        "total_cards": total_cards,
+        "folders": folders,
+    }
+
+
+def _search_bases_for_operations(side: str, game_path: str, mode: str, query: str) -> list[dict[str, Any]]:
+    """
+    Return bases matching query for Add-Card modal.
+    Offense: enemy bases.  Defense: friendly bases.
+    """
+    base_index = _load_base_ownership_index(side, game_path)
+    wanted_alignment = "enemy" if mode == "offense" else "friendly"
+    norm_query = _normalize_lookup_name(query)
+
+    results: list[dict[str, Any]] = []
+    for norm_name, info in base_index.items():
+        if info["alignment"] != wanted_alignment:
+            continue
+        if norm_query and norm_query not in norm_name:
+            continue
+        results.append({
+            "name": info["name"],
+            "owner": info["owner"],
+            "x": info.get("x"),
+            "y": info.get("y"),
+        })
+
+    results.sort(key=lambda r: r["name"])
+    return results[:100]  # Cap at 100 results
+
 def _to_int(value: object) -> int | None:
     if isinstance(value, bool):
         return None
@@ -1439,7 +1941,108 @@ def air_page(
 def operations_page(
     request: Request,
 ):
-    return _render_map_page(request, nav_section_id="operations", map_mode="operations")
+    selected_side, selected_game_path, selected_pwstool_path = _get_runtime_config()
+    state = _ensure_startup_pwstool_bootstrap(
+        selected_side,
+        selected_game_path,
+        selected_pwstool_path,
+    )
+    _refresh_overlay_cache_after_turn_if_needed(selected_side, selected_game_path, state)
+    operations_view = _build_operations_view(selected_side, selected_game_path)
+    return templates.TemplateResponse(
+        request,
+        "operations.html",
+        {
+            "side": selected_side,
+            "turn_in_progress": state.turn_in_progress,
+            "turn_completed_at": state.turn_completed_at,
+            "pwstool_last_status": state.pwstool_last_status,
+            "pwstool_last_message": state.pwstool_last_message,
+            "overlay_refresh_status": app.state.overlay_refresh_status,
+            "overlay_refresh_message": app.state.overlay_refresh_message,
+            "game_date": state.game_date,
+            "game_turn": state.game_turn,
+            "scenario_name": state.scenario_name,
+            "nav_sections": _build_nav_sections(selected_side, selected_game_path, "operations"),
+            "operations_view": operations_view,
+        },
+    )
+
+
+@app.get("/api/operations")
+def api_get_operations():
+    side, game_path, _ = _get_runtime_config()
+    return _build_operations_view(side, game_path)
+
+
+@app.get("/api/operations/base-search")
+def api_operations_base_search(mode: str = "", q: str = ""):
+    side, game_path, _ = _get_runtime_config()
+    try:
+        norm_mode = _normalize_operation_mode(mode)
+    except HTTPException:
+        return []
+    return _search_bases_for_operations(side, game_path, norm_mode, q.strip())
+
+
+@app.post("/api/operations")
+async def api_create_operation(request: Request):
+    side, game_path, _ = _get_runtime_config()
+    body = await request.json()
+    name = str(body.get("name") or "").strip()
+    mode = _normalize_operation_mode(body.get("mode") or "offense")
+    planned_date = str(body.get("planned_date") or "").strip()
+    target_base_name = str(body.get("target_base_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    if not target_base_name:
+        raise HTTPException(status_code=400, detail="target_base_name is required")
+    payload = _read_operations_payload(side, game_path)
+    new_card: dict[str, Any] = {
+        "id": str(uuid4()),
+        "name": name,
+        "mode": mode,
+        "planned_date": planned_date,
+        "target_base_name": target_base_name,
+        "status_color": OPERATIONS_FOLDER_COLORS[mode],
+        "status": "normal",
+        "warning_reason": "",
+        "switch_to_mode": "",
+        "switch_to_label": "",
+    }
+    payload["cards"].append(new_card)
+    _write_operations_payload(side, game_path, payload)
+    return new_card
+
+
+@app.delete("/api/operations/{operation_id}")
+def api_delete_operation(operation_id: str):
+    side, game_path, _ = _get_runtime_config()
+    payload = _read_operations_payload(side, game_path)
+    original_len = len(payload["cards"])
+    payload["cards"] = [c for c in payload["cards"] if c.get("id") != operation_id]
+    if len(payload["cards"]) == original_len:
+        raise HTTPException(status_code=404, detail="Operation not found")
+    _write_operations_payload(side, game_path, payload)
+    return {"deleted": operation_id}
+
+
+@app.post("/api/operations/{operation_id}/switch")
+def api_switch_operation_mode(operation_id: str):
+    side, game_path, _ = _get_runtime_config()
+    payload = _read_operations_payload(side, game_path)
+    for card in payload["cards"]:
+        if card.get("id") == operation_id:
+            current = str(card.get("mode") or "offense")
+            card["mode"] = "defense" if current == "offense" else "offense"
+            card["status_color"] = OPERATIONS_FOLDER_COLORS[card["mode"]]
+            card["status"] = "normal"
+            card["warning_reason"] = ""
+            card["switch_to_mode"] = ""
+            card["switch_to_label"] = ""
+            _write_operations_payload(side, game_path, payload)
+            return card
+    raise HTTPException(status_code=404, detail="Operation not found")
 
 
 @app.get("/toe")

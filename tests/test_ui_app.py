@@ -1374,5 +1374,220 @@ class UITests(unittest.TestCase):
             self.assertEqual((pwstool_dir / "startup-count.txt").read_text(encoding="utf-8").strip(), "1")
 
 
+    # ── Operations API tests ────────────────────────────────────────────────
+
+    def _make_ops_dir(self, tmp_dir: str) -> tuple[Path, Path]:
+        """Return (game_dir, allied_dir) with bases + operations scaffolding."""
+        game_dir = Path(tmp_dir)
+        allied_dir = game_dir / "SAVE" / "ALLIED"
+        allied_dir.mkdir(parents=True, exist_ok=True)
+        # Minimal bases.json with one enemy and one friendly base
+        (allied_dir / "bases.json").write_text(
+            json.dumps({
+                "records": [
+                    {"name": "Rabaul",     "nation": "JAPANESE", "x": 80, "y": 90},
+                    {"name": "Port Moresby", "nation": "ALLIES",  "x": 70, "y": 100},
+                ]
+            }),
+            encoding="utf-8",
+        )
+        return game_dir, allied_dir
+
+    def test_operations_page_renders(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+            response = self.client.get("/operations")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Operations", response.text)
+            self.assertIn("Add Card", response.text)
+
+    def test_operations_api_create_read_delete(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            # Start empty
+            resp = self.client.get("/api/operations")
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json()["total_cards"], 0)
+
+            # Create a card
+            create_resp = self.client.post(
+                "/api/operations",
+                json={"name": "Take Rabaul", "mode": "offense", "planned_date": "1942-01-15", "target_base_name": "Rabaul"},
+            )
+            self.assertEqual(create_resp.status_code, 200)
+            card = create_resp.json()
+            self.assertEqual(card["name"], "Take Rabaul")
+            self.assertEqual(card["mode"], "offense")
+            card_id = card["id"]
+
+            # Verify it appears in the view
+            view_resp = self.client.get("/api/operations")
+            self.assertEqual(view_resp.json()["total_cards"], 1)
+
+            # Delete it
+            del_resp = self.client.delete(f"/api/operations/{card_id}")
+            self.assertEqual(del_resp.status_code, 200)
+
+            # Verify gone
+            view_resp2 = self.client.get("/api/operations")
+            self.assertEqual(view_resp2.json()["total_cards"], 0)
+
+    def test_operations_api_switch_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            create_resp = self.client.post(
+                "/api/operations",
+                json={"name": "Port Moresby Defense", "mode": "defense", "planned_date": "", "target_base_name": "Port Moresby"},
+            )
+            card_id = create_resp.json()["id"]
+
+            switch_resp = self.client.post(f"/api/operations/{card_id}/switch")
+            self.assertEqual(switch_resp.status_code, 200)
+            self.assertEqual(switch_resp.json()["mode"], "offense")
+
+    def test_operations_api_delete_nonexistent_returns_404(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+            resp = self.client.delete("/api/operations/no-such-id")
+            self.assertEqual(resp.status_code, 404)
+
+    def test_operations_base_search_returns_enemy_for_offense(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+            resp = self.client.get("/api/operations/base-search?mode=offense&q=")
+            self.assertEqual(resp.status_code, 200)
+            names = [r["name"] for r in resp.json()]
+            self.assertIn("Rabaul", names)
+            self.assertNotIn("Port Moresby", names)
+
+    def test_operations_base_search_returns_friendly_for_defense(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+            resp = self.client.get("/api/operations/base-search?mode=defense&q=")
+            self.assertEqual(resp.status_code, 200)
+            names = [r["name"] for r in resp.json()]
+            self.assertIn("Port Moresby", names)
+            self.assertNotIn("Rabaul", names)
+
+    def test_operations_cards_enriched_with_task_forces_and_ground_units(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            # Task force heading to Rabaul (80,90)
+            (allied_dir / "taskforces.json").write_text(
+                json.dumps([{
+                    "record_id": 10,
+                    "flagship_name": "Enterprise",
+                    "mission": "STRIKE",
+                    "end_of_day_x": 75,
+                    "end_of_day_y": 88,
+                    "target_x": 80,
+                    "target_y": 90,
+                }]),
+                encoding="utf-8",
+            )
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(json.dumps([]), encoding="utf-8")
+
+            # Ground unit prepping for Rabaul
+            (allied_dir / "ground_units.json").write_text(
+                json.dumps([{
+                    "unit_type_name": "INF",
+                    "name": "1st Marine Div",
+                    "stationed_at_base_name": "Guadalcanal",
+                    "end_of_day_x": 78,
+                    "end_of_day_y": 92,
+                    "prep_percent": 55,
+                    "prep_target_name": "Rabaul",
+                }]),
+                encoding="utf-8",
+            )
+
+            # Create offensive card against Rabaul
+            self.client.post(
+                "/api/operations",
+                json={"name": "Attack Rabaul", "mode": "offense", "planned_date": "", "target_base_name": "Rabaul"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            offense_folder = next(f for f in view["folders"] if f["mode"] == "offense")
+            card = offense_folder["cards"][0]
+
+            self.assertEqual(len(card["task_forces"]), 1)
+            self.assertEqual(card["task_forces"][0]["flagship"], "Enterprise")
+            self.assertEqual(card["task_forces"][0]["distance_hexes"], 6)  # ceil(5.385)
+
+            self.assertEqual(len(card["ground_units"]), 1)
+            self.assertEqual(card["ground_units"][0]["name"], "1st Marine Div")
+            self.assertEqual(card["ground_units"][0]["prep_percent"], 55)
+
+    def test_operations_defense_card_includes_air_groups_rebasing_to_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(
+                json.dumps([{
+                    "record_id": 99,
+                    "name": "VMF-121",
+                    "aircraft_name": "F4F-3",
+                    "is_rebasing": True,
+                    "rebase_target_base_name": "Port Moresby",
+                    "rebase_target_x": 70,
+                    "rebase_target_y": 100,
+                    "x": 51,
+                    "y": 85,
+                    "loaded_on_ship_id": None,
+                    "loaded_as_cargo_on_ship_id": None,
+                    "stationed_at_base_name": None,
+                    "stationed_on_ship_name": None,
+                }]),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={"name": "Defend PM", "mode": "defense", "planned_date": "", "target_base_name": "Port Moresby"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            defense_folder = next(f for f in view["folders"] if f["mode"] == "defense")
+            card = defense_folder["cards"][0]
+
+            self.assertEqual(len(card["air_groups"]), 1)
+            self.assertEqual(card["air_groups"][0]["name"], "VMF-121")
+            self.assertEqual(card["air_groups"][0]["aircraft_type"], "F4F-3")
+            self.assertIn("transit", card["air_groups"][0]["location"])
+
+    def test_operations_create_requires_name_and_target(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, _ = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            resp_no_name = self.client.post(
+                "/api/operations",
+                json={"name": "", "mode": "offense", "target_base_name": "Rabaul"},
+            )
+            self.assertEqual(resp_no_name.status_code, 400)
+
+            resp_no_target = self.client.post(
+                "/api/operations",
+                json={"name": "Plan X", "mode": "offense", "target_base_name": ""},
+            )
+            self.assertEqual(resp_no_target.status_code, 400)
+
+
 if __name__ == "__main__":
     unittest.main()
