@@ -3,9 +3,24 @@ setlocal EnableExtensions
 
 cd /d "%~dp0"
 
+rem Check that a 64-bit Python 3 is available via the Python Launcher.
+py -3-64 --version >nul 2>&1
+if errorlevel 1 (
+    echo.
+    echo ERROR: 64-bit Python 3 was not found.
+    echo The UI requires 64-bit Python 3 to run.
+    echo To install it, run the following command in a terminal:
+    echo.
+    echo   winget install --id Python.Python.3 --architecture x64 --source winget
+    echo.
+    echo After installation, restart this script.
+    pause
+    exit /b 1
+)
+
 if not exist ".venv\Scripts\python.exe" (
     echo Creating virtual environment...
-    py -m venv ".venv"
+    py -3-64 -m venv ".venv"
     if errorlevel 1 goto :error
 )
 

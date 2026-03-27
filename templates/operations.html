@@ -549,7 +549,7 @@ ${(() => {
       html += `
         <table class="ops-table">
           <thead><tr>
-            <th>Flagship</th><th>Mission</th><th>Location</th><th>Distance (hex)</th>
+            <th>Flagship</th><th>Mission</th><th>Current Location</th><th>Distance to Target (hex)</th>
           </tr></thead>
           <tbody>`;
       card.task_forces.forEach(tf => {
@@ -571,7 +571,7 @@ ${(() => {
       html += `
         <table class="ops-table">
           <thead><tr>
-            <th>Type</th><th>Name</th><th>Location</th><th>% Prepared</th>
+            <th>Type</th><th>Name</th><th>Current Location / Distance to Target</th><th>% Prepared</th>
           </tr></thead>
           <tbody>`;
       card.ground_units.forEach(gu => {

@@ -175,7 +175,6 @@
   <input id="chkThreatAreas" type="checkbox" hidden>
   {% elif map_mode == "air" %}
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkHqOverlay" type="checkbox" checked> HQ Overlay</label>
-  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAreaCommandOverlay" type="checkbox" checked> Area Command</label>
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirSearchOverlay" type="checkbox" checked> Search</label>
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirAswOverlay" type="checkbox" checked> ASW</label>
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAirAttackOverlay" type="checkbox" checked> Attack Range</label>
@@ -194,7 +193,6 @@
   <input id="chkMinefieldsOverlay" type="checkbox" hidden>
   {% elif map_mode == "land" %}
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkHqOverlay" type="checkbox" checked> HQ Overlay</label>
-  <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkAreaCommandOverlay" type="checkbox" checked> Area Command</label>
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkLandUnitHqLinkOverlay" type="checkbox" checked> UnitHQLink</label>
   <label style="display:flex; gap:6px; align-items:center; cursor:pointer;"><input id="chkLandPlanningOverlay" type="checkbox" checked> Planning</label>
   <input id="chkAirSearchOverlay" type="checkbox" hidden>
@@ -269,7 +267,6 @@
       <img id="minefieldsOverlay" src="/api/overlays/sea-minefields.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:23;pointer-events:none;display:none;">
       <img id="threatSubOverlay" src="/api/overlays/threats-sub.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:25;pointer-events:none;display:none;">
       {% elif map_mode == "air" %}
-      <img id="areaCommandOverlay" src="/api/overlays/{{ map_mode }}-area-command.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
       <img id="airSearchOverlay" src="/api/overlays/air-search.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:24;pointer-events:none;display:none;">
       <img id="airAswOverlay" src="/api/overlays/air-asw.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:27;pointer-events:none;display:none;">
       <img id="airAttackOverlay" src="/api/overlays/air-attack.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:28;pointer-events:none;display:none;">
@@ -277,7 +274,6 @@
       <img id="threatSubOverlay" src="/api/overlays/threats-sub.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:29;pointer-events:none;display:none;">
       <img id="hqOverlay" src="/api/overlays/{{ map_mode }}-hq.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
       {% elif map_mode == "land" %}
-      <img id="areaCommandOverlay" src="/api/overlays/{{ map_mode }}-area-command.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:20;pointer-events:none;display:none;">
       <img id="landUnitHqLinkOverlay" src="/api/overlays/land-unit-hq-link.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:24;pointer-events:none;display:none;">
       <img id="landPlanningOverlay" src="/api/overlays/land-planning.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:27;pointer-events:none;display:none;">
       <img id="hqOverlay" src="/api/overlays/{{ map_mode }}-hq.svg?v={{ render_version }}" alt="" style="position:absolute;left:0;top:0;width:100%;height:100%;z-index:30;pointer-events:none;display:none;">
@@ -306,7 +302,6 @@
   const placeholderMode = {{ "true" if placeholder_mode else "false" }};
   const logisticsMode = {{ "true" if map_mode == "logistics" else "false" }};
   const hqMode = {{ "true" if map_mode in ["sea", "air", "land"] else "false" }};
-  const areaCommandMode = {{ "true" if map_mode in ["air", "land"] else "false" }};
   const airMissionMode = {{ "true" if map_mode == "air" else "false" }};
   const subThreatMode = {{ "true" if map_mode in ["sea", "air"] else "false" }};
 
@@ -317,7 +312,6 @@
   const regionsOverlay    = document.getElementById("regionsOverlay");
   const baseSupplyOverlay = document.getElementById("baseSupplyOverlay");
   const logisticsTaskforcesOverlay = document.getElementById("logisticsTaskforcesOverlay");
-  const areaCommandOverlay = document.getElementById("areaCommandOverlay");
   const airSearchOverlay  = document.getElementById("airSearchOverlay");
   const airAswOverlay     = document.getElementById("airAswOverlay");
   const airAttackOverlay  = document.getElementById("airAttackOverlay");
@@ -361,7 +355,6 @@
   let regionsData    = null;
   let baseSupplyData = null;
   let logisticsTaskforcesData = null;
-  let areaCommandData = null;
   let airSearchData  = null;
   let airAswData     = null;
   let airAttackData  = null;
@@ -382,9 +375,6 @@
     }
     if (logisticsTaskforcesOverlay) {
       logisticsTaskforcesOverlay.style.display = chkLogisticsTaskforces.checked ? "block" : "none";
-    }
-    if (areaCommandOverlay) {
-      areaCommandOverlay.style.display = chkAreaCommandOverlay.checked ? "block" : "none";
     }
     if (airSearchOverlay) {
       airSearchOverlay.style.display = chkAirSearchOverlay.checked ? "block" : "none";
@@ -494,7 +484,6 @@
 
     if (mapMode === "air") {
       entries.push(legendItem("legend-icon-ring", "HQ coverage", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
-      entries.push(legendItem("legend-icon-square", "Area command", {"--legend-fill": "rgba(46,132,69,0.18)", "--legend-stroke": "rgba(98,220,120,0.78)"}));
       entries.push(legendItem("legend-icon-ring", "Search sector", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
       entries.push(legendItem("legend-icon-ring", "ASW sector", {"--legend-stroke": "rgba(255,126,185,0.96)"}));
       entries.push(legendItem("legend-icon-ring", "Attack range", {"--legend-stroke": "rgba(255,210,80,0.95)"}));
@@ -505,7 +494,6 @@
 
     if (mapMode === "land") {
       entries.push(legendItem("legend-icon-ring", "HQ coverage", {"--legend-stroke": "rgba(88,220,108,0.95)"}));
-      entries.push(legendItem("legend-icon-square", "Area command", {"--legend-fill": "rgba(46,132,69,0.18)", "--legend-stroke": "rgba(98,220,120,0.78)"}));
       entries.push(legendItem("legend-icon-line-dashed", "Unit HQ link", {"--legend-stroke": "rgba(255,220,60,0.98)"}));
       entries.push(legendItem("legend-icon-line-dashed", "Planning path", {"--legend-stroke": "rgba(255,190,90,0.98)"}));
       return entries;
@@ -794,15 +782,6 @@
       }
     }
 
-    if (areaCommandData && areaCommandOverlay && areaCommandOverlay.style.display !== "none") {
-      for (const f of areaCommandData.features) {
-        const poly = (f.polygon || []).map(([c,r]) => gameHexToDisplayPixel(c, r));
-        if (poly.length >= 3 && pointInPolygon(dp, poly)) {
-          showTooltip(`Area Command: ${f.name || "Unknown"}`, event.clientX, event.clientY); return;
-        }
-      }
-    }
-
     if (airSearchData && airSearchOverlay && airSearchOverlay.style.display !== "none") {
       for (const f of airSearchData.features) {
         if (pointInAirSector(dp, f)) {
@@ -941,9 +920,6 @@
       fetch("/api/overlays/logistics-taskforces", {cache:"no-store"}).then(r=>r.json()).then(d=>{logisticsTaskforcesData=d;}).catch(()=>{});
       return;
     }
-    if (areaCommandMode) {
-      fetch(`/api/overlays/${mapMode}-area-command`, {cache:"no-store"}).then(r=>r.json()).then(d=>{areaCommandData=d;}).catch(()=>{});
-    }
     if (hqMode) {
       fetch(`/api/overlays/${mapMode}-hq`, {cache:"no-store"}).then(r=>r.json()).then(d=>{hqData=d;}).catch(()=>{});
     }
@@ -966,7 +942,7 @@
     if (airMissionMode) {
       return;
     }
-    if (hqMode || areaCommandMode) {
+    if (hqMode) {
       return;
     }
     fetch("/api/overlays/invasions", {cache:"no-store"}).then(r=>r.json()).then(d=>{invasionsData=d;}).catch(()=>{});
@@ -983,7 +959,6 @@
   chkRegions.addEventListener("change",       updateOverlayVisibility);
   chkBaseSupply.addEventListener("change",    updateOverlayVisibility);
   chkLogisticsTaskforces.addEventListener("change", updateOverlayVisibility);
-  chkAreaCommandOverlay.addEventListener("change",  updateOverlayVisibility);
   chkAirSearchOverlay.addEventListener("change", updateOverlayVisibility);
   chkAirAswOverlay.addEventListener("change", updateOverlayVisibility);
   chkAirAttackOverlay.addEventListener("change", updateOverlayVisibility);

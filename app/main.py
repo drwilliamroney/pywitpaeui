@@ -23,7 +23,6 @@ from app.overlays import (
     get_air_attack_range_overlay,
     get_airgroup_hq_link_overlay,
     get_air_mission_overlay,
-    get_area_command_overlay,
     get_available_overlays,
     get_base_supply_overlay,
     get_hq_overlay,
@@ -87,13 +86,6 @@ OPERATIONS_FILE_NAME = "operations.json"
 OPERATIONS_FOLDER_ORDER = ("offense", "defense")
 OPERATIONS_MODE_LABELS = {"offense": "Offense", "defense": "Defense"}
 OPERATIONS_FOLDER_COLORS = {"offense": "red", "defense": "green"}
-ALLIED_OWNER_MARKERS = (
-    "ALLIED", "ALLIES", "USA", "USN", "USMC", "COMMONWEALTH", "BRITISH",
-    "AUSTRALIA", "AUSTRALIAN", "ANZAC", "CHINA", "CHINESE", "DUTCH",
-    "INDIA", "INDIAN", "NEW ZEALAND", "NZ", "RAF", "RAAF", "ROYAL NAVY",
-    "RN", "USNAVY", "USARMY", "USMARINES", "USAAF", "CANADIAN", "RCAF",
-    "RNZAF", "RNZN", "RNAF", "RNEIAF", "KNIL",
-)
 JAPANESE_OWNER_MARKERS = (
     "JAPAN", "JAPANESE", "IJARMY", "IJNAVY", "IJA", "IJN",
 )
@@ -248,8 +240,6 @@ def _build_overlay_cache_payloads(selected_side: str, selected_game_path: str) -
         "land-hq": get_hq_overlay(selected_game_path, selected_side, assembly.width, assembly.height, "land"),
         "land-unit-hq-link": get_unit_hq_link_overlay(selected_game_path, selected_side, assembly.width, assembly.height),
         "land-planning": get_planning_overlay(selected_game_path, selected_side, assembly.width, assembly.height),
-        "air-area-command": get_area_command_overlay(selected_game_path, selected_side, assembly.width, assembly.height, "air"),
-        "land-area-command": get_area_command_overlay(selected_game_path, selected_side, assembly.width, assembly.height, "land"),
         "air-search": get_air_mission_overlay(selected_game_path, selected_side, assembly.width, assembly.height, "search"),
         "air-asw": get_air_mission_overlay(selected_game_path, selected_side, assembly.width, assembly.height, "asw"),
         "air-attack": get_air_attack_range_overlay(selected_game_path, selected_side, assembly.width, assembly.height),
@@ -274,8 +264,6 @@ def _build_overlay_cache_payloads(selected_side: str, selected_game_path: str) -
         "land-hq": renderer.render_hq_coverage_svg(json_payloads["land-hq"]["features"]),
         "land-unit-hq-link": renderer.render_link_lines_svg(json_payloads["land-unit-hq-link"]["features"]),
         "land-planning": renderer.render_link_lines_svg(json_payloads["land-planning"]["features"]),
-        "air-area-command": renderer.render_area_command_svg(json_payloads["air-area-command"]["features"]),
-        "land-area-command": renderer.render_area_command_svg(json_payloads["land-area-command"]["features"]),
         "air-search": renderer.render_air_mission_sectors_svg(json_payloads["air-search"]["features"]),
         "air-asw": renderer.render_air_mission_sectors_svg(json_payloads["air-asw"]["features"]),
         "air-attack": renderer.render_air_attack_ranges_svg(json_payloads["air-attack"]["features"]),
@@ -997,12 +985,53 @@ def _load_base_records_for_side(side: str, game_path: str) -> list[dict[str, Any
 
 def _classify_base_alignment(owner: str, side: str) -> str:
     upper = owner.strip().upper()
-    for marker in ALLIED_OWNER_MARKERS:
-        if marker in upper:
-            return "friendly" if side == "allies" else "enemy"
-    for marker in JAPANESE_OWNER_MARKERS:
-        if marker in upper:
-            return "enemy" if side == "allies" else "friendly"
+    if not upper:
+        return "unknown"
+
+    normalized_owner = "".join(ch for ch in upper if ch.isalnum())
+    is_japanese = any(marker in upper or marker in normalized_owner for marker in JAPANESE_OWNER_MARKERS)
+
+    if side == "allies":
+        # Allies perspective: only Japanese-controlled bases are enemy.
+        return "enemy" if is_japanese else "friendly"
+
+    # Japan perspective: Japanese-controlled bases are friendly, all others are enemy.
+    return "friendly" if is_japanese else "enemy"
+
+
+def _ground_unit_location_label(
+    unit: dict[str, Any],
+    target_x: int | None,
+    target_y: int | None,
+    current_x: int | None,
+    current_y: int | None,
+) -> str:
+    base_name = str(unit.get("stationed_at_base_name") or "").strip()
+    loaded_ship_name = str(unit.get("loaded_on_ship_name") or "").strip()
+    task_force_name = str(unit.get("task_force_name") or unit.get("taskforce_name") or "").strip()
+
+    if loaded_ship_name:
+        current_label = f"Task Force ({loaded_ship_name})"
+    elif task_force_name:
+        current_label = f"Task Force ({task_force_name})"
+    elif base_name:
+        current_label = base_name
+    elif current_x is not None and current_y is not None:
+        current_label = f"({current_x},{current_y})"
+    else:
+        current_label = ""
+
+    if (
+        current_label
+        and target_x is not None
+        and target_y is not None
+        and current_x is not None
+        and current_y is not None
+    ):
+        distance = math.ceil(_hex_distance(current_x, current_y, target_x, target_y))
+        return f"{current_label} ({distance} hex)"
+
+    return current_label
     return "unknown"
 
 
@@ -1012,12 +1041,14 @@ def _load_base_ownership_index(side: str, game_path: str) -> dict[str, dict[str,
         name = str(record.get("name") or "").strip()
         if not name:
             continue
+        record_id = _to_int(record.get("record_id"))
         owner = str(record.get("nation") or record.get("owner") or record.get("controller") or "").strip()
         alignment = _classify_base_alignment(owner, side)
         norm = _normalize_lookup_name(name)
         coords_x = _to_int(record.get("x"))
         coords_y = _to_int(record.get("y"))
         index[norm] = {
+            "record_id": record_id,
             "name": name,
             "owner": owner,
             "alignment": alignment,
@@ -1025,6 +1056,48 @@ def _load_base_ownership_index(side: str, game_path: str) -> dict[str, dict[str,
             "y": coords_y,
         }
     return index
+
+
+def _resolve_base_info(base_index: dict[str, dict[str, Any]], target_name: str) -> dict[str, Any]:
+    """Resolve target base info by exact or fuzzy normalized name match."""
+    norm_target = _normalize_lookup_name(target_name)
+    if not norm_target:
+        return {}
+
+    exact = base_index.get(norm_target)
+    if exact is not None:
+        return exact
+
+    target_tokens = [token for token in norm_target.split(" ") if token]
+    if not target_tokens:
+        return {}
+    target_token_set = set(target_tokens)
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for norm_name, info in base_index.items():
+        name_tokens = [token for token in norm_name.split(" ") if token]
+        if not name_tokens:
+            continue
+        name_token_set = set(name_tokens)
+
+        token_overlap = len(target_token_set & name_token_set)
+        if token_overlap == 0:
+            continue
+
+        # Prefer close textual matches and complete token coverage.
+        score = abs(len(norm_name) - len(norm_target))
+        if target_token_set.issubset(name_token_set):
+            score -= 10
+        if norm_name.startswith(norm_target) or norm_target.startswith(norm_name):
+            score -= 5
+
+        candidates.append((score, info))
+
+    if not candidates:
+        return {}
+
+    candidates.sort(key=lambda item: item[0])
+    return candidates[0][1]
 
 
 # ---------------------------------------------------------------------------
@@ -1051,8 +1124,7 @@ def _refresh_operations_status(side: str, game_path: str) -> None:
     for card in cards:
         mode = str(card.get("mode") or "offense")
         target_name = str(card.get("target_base_name") or "")
-        norm_target = _normalize_lookup_name(target_name)
-        base_info = base_index.get(norm_target)
+        base_info = _resolve_base_info(base_index, target_name)
 
         if base_info:
             alignment = base_info["alignment"]
@@ -1131,8 +1203,15 @@ def _load_taskforces_for_target(side: str, game_path: str, target_x: int, target
     return results
 
 
-def _load_ground_units_for_target(side: str, game_path: str, target_base_name: str, target_x: int | None = None, target_y: int | None = None) -> list[dict[str, Any]]:
-    """Return ground units that are preparing for the named target base."""
+def _load_ground_units_for_target(
+    side: str,
+    game_path: str,
+    target_base_name: str,
+    target_x: int | None = None,
+    target_y: int | None = None,
+    target_base_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """Return ground units whose destination (or prep target) matches the card target."""
     folder = "ALLIED" if side == "allies" else "JAPAN"
     gu_path = Path(game_path) / "SAVE" / folder / "ground_units.json"
     if not gu_path.exists():
@@ -1145,35 +1224,52 @@ def _load_ground_units_for_target(side: str, game_path: str, target_base_name: s
     norm_target = _normalize_lookup_name(target_base_name)
     results: list[dict[str, Any]] = []
     for unit in records:
+        destination_x = _to_int(unit.get("destination_x"))
+        destination_y = _to_int(unit.get("destination_y"))
         prep_target = str(unit.get("prep_target_name") or "").strip()
-        if not prep_target:
+        prep_target_id = _to_int(unit.get("prep_target_id"))
+        prep_target_x = _to_int(unit.get("prep_target_x"))
+        prep_target_y = _to_int(unit.get("prep_target_y"))
+
+        matches_target = False
+        # Primary rule: card target is the destination to match against.
+        if (
+            target_x is not None
+            and target_y is not None
+            and destination_x == target_x
+            and destination_y == target_y
+        ):
+            matches_target = True
+        elif prep_target and _normalize_lookup_name(prep_target) == norm_target:
+            matches_target = True
+        elif target_base_id is not None and prep_target_id == target_base_id:
+            matches_target = True
+        elif (
+            target_x is not None
+            and target_y is not None
+            and prep_target_x == target_x
+            and prep_target_y == target_y
+        ):
+            matches_target = True
+
+        if not matches_target:
             continue
-        if _normalize_lookup_name(prep_target) != norm_target:
-            continue
+
         eod_x = _to_int(unit.get("end_of_day_x"))
         eod_y = _to_int(unit.get("end_of_day_y"))
-        # Determine current location label
-        base_name = str(unit.get("stationed_at_base_name") or "").strip()
-        if base_name:
-            if target_x is not None and target_y is not None and eod_x is not None and eod_y is not None:
-                dist = math.ceil(_hex_distance(eod_x, eod_y, target_x, target_y))
-                location_label = f"{base_name} ({dist} hex)"
-            else:
-                location_label = base_name
-        elif eod_x is not None and eod_y is not None:
-            if target_x is not None and target_y is not None:
-                dist = math.ceil(_hex_distance(eod_x, eod_y, target_x, target_y))
-                location_label = f"({eod_x},{eod_y}) ({dist} hex)"
-            else:
-                location_label = f"({eod_x},{eod_y})"
-        else:
-            location_label = ""
+        start_x = _to_int(unit.get("start_of_day_x"))
+        start_y = _to_int(unit.get("start_of_day_y"))
+        current_x = eod_x if eod_x is not None else start_x
+        current_y = eod_y if eod_y is not None else start_y
+
+        location_label = _ground_unit_location_label(unit, target_x, target_y, current_x, current_y)
+
         results.append({
             "unit_type": str(unit.get("unit_type_name") or ""),
             "name": str(unit.get("name") or ""),
             "location": location_label,
-            "location_x": eod_x,
-            "location_y": eod_y,
+            "location_x": current_x,
+            "location_y": current_y,
             "prep_percent": _to_int(unit.get("prep_percent")) or 0,
         })
     results.sort(key=lambda r: (-r["prep_percent"], r["name"]))
@@ -1325,8 +1421,8 @@ def _build_operations_view(side: str, game_path: str) -> dict[str, Any]:
         enriched_cards: list[dict[str, Any]] = []
         for card in folder_cards_raw:
             target_name = str(card.get("target_base_name") or "")
-            norm_target = _normalize_lookup_name(target_name)
-            base_info = base_index.get(norm_target, {})
+            base_info = _resolve_base_info(base_index, target_name)
+            target_base_id = base_info.get("record_id")
             target_x = base_info.get("x")
             target_y = base_info.get("y")
 
@@ -1350,7 +1446,7 @@ def _build_operations_view(side: str, game_path: str) -> dict[str, Any]:
                                 ship_to_flagship[sid] = flagship
 
             # Ground units
-            ground_units = _load_ground_units_for_target(side, game_path, target_name, target_x, target_y)
+            ground_units = _load_ground_units_for_target(side, game_path, target_name, target_x, target_y, target_base_id)
 
             # Air groups (defense only for now, but built for both so template can decide)
             air_groups: list[dict[str, Any]] = []
@@ -2311,8 +2407,17 @@ def api_land_hq_overlay() -> JSONResponse:
 
 @app.get("/api/overlays/air-area-command", response_class=JSONResponse)
 def api_air_area_command_overlay() -> JSONResponse:
-    selected_side, selected_game_path, _selected_pwstool_path = _get_runtime_config()
-    return JSONResponse(_get_cached_overlay_json("air-area-command", selected_side, selected_game_path))
+    return JSONResponse(
+        {
+            "overlay_id": "air-area-command",
+            "overlay_name": "Air Area Command",
+            "type": "area-command",
+            "cols": GAME_COLS,
+            "rows": GAME_ROWS,
+            "features": [],
+            "disabled": True,
+        }
+    )
 
 
 @app.get("/api/overlays/air-search", response_class=JSONResponse)
@@ -2341,8 +2446,17 @@ def api_air_hq_link_overlay() -> JSONResponse:
 
 @app.get("/api/overlays/land-area-command", response_class=JSONResponse)
 def api_land_area_command_overlay() -> JSONResponse:
-    selected_side, selected_game_path, _selected_pwstool_path = _get_runtime_config()
-    return JSONResponse(_get_cached_overlay_json("land-area-command", selected_side, selected_game_path))
+    return JSONResponse(
+        {
+            "overlay_id": "land-area-command",
+            "overlay_name": "Land Area Command",
+            "type": "area-command",
+            "cols": GAME_COLS,
+            "rows": GAME_ROWS,
+            "features": [],
+            "disabled": True,
+        }
+    )
 
 
 @app.get("/api/overlays/land-unit-hq-link", response_class=JSONResponse)
@@ -2517,8 +2631,7 @@ def api_land_hq_overlay_svg() -> Response:
 
 @app.get("/api/overlays/air-area-command.svg")
 def api_air_area_command_overlay_svg() -> Response:
-    selected_side, selected_game_path, _selected_pwstool_path = _get_runtime_config()
-    return _svg_response(_get_cached_overlay_svg("air-area-command", selected_side, selected_game_path))
+    return _svg_response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>')
 
 
 @app.get("/api/overlays/air-search.svg")
@@ -2547,8 +2660,7 @@ def api_air_hq_link_overlay_svg() -> Response:
 
 @app.get("/api/overlays/land-area-command.svg")
 def api_land_area_command_overlay_svg() -> Response:
-    selected_side, selected_game_path, _selected_pwstool_path = _get_runtime_config()
-    return _svg_response(_get_cached_overlay_svg("land-area-command", selected_side, selected_game_path))
+    return _svg_response('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"></svg>')
 
 
 @app.get("/api/overlays/land-unit-hq-link.svg")

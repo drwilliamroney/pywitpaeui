@@ -766,11 +766,6 @@ def get_available_overlays() -> list[dict[str, str]]:
             "description": "Six-hex command-radius circles for HQ overlays by map mode",
         },
         {
-            "id": "area-command",
-            "name": "Area Command",
-            "description": "Bounding polygons grouped by area command",
-        },
-        {
             "id": "air-search",
             "name": "Air Search",
             "description": "Airgroup search sectors using aircraft range and search arcs",

@@ -602,6 +602,7 @@ class UITests(unittest.TestCase):
         self.assertIn("air-attack", [item["id"] for item in payload])
         self.assertIn("air-hq-link", [item["id"] for item in payload])
         self.assertIn("sea-minefields", [item["id"] for item in payload])
+        self.assertNotIn("area-command", [item["id"] for item in payload])
 
     def test_invasions_overlay_endpoint_aggregates_combat_report_titles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -1477,6 +1478,49 @@ class UITests(unittest.TestCase):
             self.assertIn("Port Moresby", names)
             self.assertNotIn("Rabaul", names)
 
+    def test_operations_base_search_allies_treats_non_japanese_as_friendly(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "bases.json").write_text(
+                json.dumps({
+                    "records": [
+                        {"name": "Rabaul", "nation": "IJNavy", "x": 80, "y": 90},
+                        {"name": "Noumea", "nation": "French", "x": 82, "y": 110},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            resp = self.client.get("/api/operations/base-search?mode=defense&q=")
+            self.assertEqual(resp.status_code, 200)
+            names = [r["name"] for r in resp.json()]
+            self.assertIn("Noumea", names)
+            self.assertNotIn("Rabaul", names)
+
+    def test_operations_base_search_japan_defense_only_includes_japanese(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir = Path(tmp_dir)
+            japan_dir = game_dir / "SAVE" / "JAPAN"
+            japan_dir.mkdir(parents=True, exist_ok=True)
+            (japan_dir / "bases.json").write_text(
+                json.dumps({
+                    "records": [
+                        {"name": "Truk", "nation": "IJArmy", "x": 90, "y": 80},
+                        {"name": "Noumea", "nation": "French", "x": 82, "y": 110},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+
+            self._set_runtime_env(game_dir, side="japan")
+            resp = self.client.get("/api/operations/base-search?mode=defense&q=")
+            self.assertEqual(resp.status_code, 200)
+            names = [r["name"] for r in resp.json()]
+            self.assertIn("Truk", names)
+            self.assertNotIn("Noumea", names)
+
     def test_operations_cards_enriched_with_task_forces_and_ground_units(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             game_dir, allied_dir = self._make_ops_dir(tmp_dir)
@@ -1570,6 +1614,187 @@ class UITests(unittest.TestCase):
             self.assertEqual(card["air_groups"][0]["name"], "VMF-121")
             self.assertEqual(card["air_groups"][0]["aircraft_type"], "F4F-3")
             self.assertIn("transit", card["air_groups"][0]["location"])
+
+    def test_operations_ground_unit_location_prefers_task_force_and_shows_distance(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(
+                json.dumps([
+                    {
+                        "unit_type_name": "INF",
+                        "name": "2nd Marine Div",
+                        "prep_target_name": "Rabaul",
+                        "prep_target_x": 80,
+                        "prep_target_y": 90,
+                        "loaded_on_ship_name": "APD McKean",
+                        "end_of_day_x": 77,
+                        "end_of_day_y": 90,
+                        "prep_percent": 40,
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={"name": "Attack Rabaul", "mode": "offense", "planned_date": "", "target_base_name": "Rabaul"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            offense_folder = next(f for f in view["folders"] if f["mode"] == "offense")
+            card = offense_folder["cards"][0]
+            self.assertEqual(card["ground_units"][0]["location"], "Task Force (APD McKean) (3 hex)")
+
+    def test_operations_ground_unit_matches_target_by_prep_target_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "bases.json").write_text(
+                json.dumps({
+                    "records": [
+                        {"record_id": 901, "name": "Rabaul", "nation": "JAPANESE", "x": 80, "y": 90},
+                        {"record_id": 902, "name": "Port Moresby", "nation": "ALLIES", "x": 70, "y": 100},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(
+                json.dumps([
+                    {
+                        "unit_type_name": "INF",
+                        "name": "3rd Marine Div",
+                        "prep_target_id": 901,
+                        "prep_target_name": "RABAUL (OLD)",
+                        "prep_target_x": 80,
+                        "prep_target_y": 90,
+                        "stationed_at_base_name": "Lae",
+                        "end_of_day_x": 76,
+                        "end_of_day_y": 90,
+                        "prep_percent": 66,
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={"name": "Attack Rabaul", "mode": "offense", "planned_date": "", "target_base_name": "Rabaul"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            offense_folder = next(f for f in view["folders"] if f["mode"] == "offense")
+            card = offense_folder["cards"][0]
+            self.assertEqual(len(card["ground_units"]), 1)
+            self.assertEqual(card["ground_units"][0]["name"], "3rd Marine Div")
+
+    def test_operations_ground_units_resolve_short_target_name_to_full_base_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "bases.json").write_text(
+                json.dumps({
+                    "records": [
+                        {"record_id": 532, "name": "Adak Island", "nation": "USNAVY", "x": 162, "y": 52},
+                    ]
+                }),
+                encoding="utf-8",
+            )
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(
+                json.dumps([
+                    {
+                        "unit_type_name": "INF",
+                        "name": "56th",
+                        "prep_target_name": "Adak Island",
+                        "prep_target_x": 162,
+                        "prep_target_y": 52,
+                        "stationed_at_base_name": "Adak Island",
+                        "end_of_day_x": 162,
+                        "end_of_day_y": 52,
+                        "prep_percent": 70,
+                    }
+                ]),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={"name": "Defend Adak", "mode": "defense", "planned_date": "", "target_base_name": "Adak"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            defense_folder = next(f for f in view["folders"] if f["mode"] == "defense")
+            card = defense_folder["cards"][0]
+            self.assertEqual(len(card["ground_units"]), 1)
+            self.assertEqual(card["ground_units"][0]["name"], "56th")
+
+    def test_operations_ground_units_match_destination_even_with_codeword_card_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "bases.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"record_id": 577, "name": "Lahaina", "nation": "USNAVY", "x": 182, "y": 108},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "unit_type_name": "INF",
+                            "name": "Codeword Matched Unit",
+                            "prep_target_name": "Somewhere Else",
+                            "prep_target_x": 1,
+                            "prep_target_y": 1,
+                            "destination_x": 182,
+                            "destination_y": 108,
+                            "stationed_at_base_name": "Hilo",
+                            "end_of_day_x": 180,
+                            "end_of_day_y": 107,
+                            "prep_percent": 22,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={
+                    "name": "Operation Bumblebee",
+                    "mode": "defense",
+                    "planned_date": "",
+                    "target_base_name": "Lahaina",
+                },
+            )
+
+            view = self.client.get("/api/operations").json()
+            defense_folder = next(f for f in view["folders"] if f["mode"] == "defense")
+            card = defense_folder["cards"][0]
+            self.assertEqual(card["name"], "Operation Bumblebee")
+            self.assertEqual(len(card["ground_units"]), 1)
+            self.assertEqual(card["ground_units"][0]["name"], "Codeword Matched Unit")
 
     def test_operations_create_requires_name_and_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
