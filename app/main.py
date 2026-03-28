@@ -1001,20 +1001,37 @@ def _classify_base_alignment(owner: str, side: str) -> str:
 
 def _ground_unit_location_label(
     unit: dict[str, Any],
+    target_base_name: str,
     target_x: int | None,
     target_y: int | None,
     current_x: int | None,
     current_y: int | None,
+    current_base_name: str = "",
 ) -> str:
     base_name = str(unit.get("stationed_at_base_name") or "").strip()
     loaded_ship_name = str(unit.get("loaded_on_ship_name") or "").strip()
     task_force_name = str(unit.get("task_force_name") or unit.get("taskforce_name") or "").strip()
+    current_base_name = str(current_base_name or "").strip()
 
     if loaded_ship_name:
         current_label = f"Task Force ({loaded_ship_name})"
     elif task_force_name:
         current_label = f"Task Force ({task_force_name})"
+    elif current_base_name:
+        current_label = current_base_name
+    elif (
+        base_name
+        and target_base_name
+        and _normalize_lookup_name(base_name) == _normalize_lookup_name(target_base_name)
+        and target_x is not None
+        and target_y is not None
+        and current_x is not None
+        and current_y is not None
+        and (current_x != target_x or current_y != target_y)
+    ):
+        current_label = f"({current_x},{current_y})"
     elif base_name:
+        # If we cannot resolve a base at current coordinates, fall back to recorded base name.
         current_label = base_name
     elif current_x is not None and current_y is not None:
         current_label = f"({current_x},{current_y})"
@@ -1210,8 +1227,11 @@ def _load_ground_units_for_target(
     target_x: int | None = None,
     target_y: int | None = None,
     target_base_id: int | None = None,
+    tf_ids: set[int] | None = None,
+    tf_ship_ids: set[int] | None = None,
+    tf_ship_names: set[str] | None = None,
 ) -> list[dict[str, Any]]:
-    """Return ground units whose destination (or prep target) matches the card target."""
+    """Return ground units loaded on target-bound TF ships and/or preparing for the card target."""
     folder = "ALLIED" if side == "allies" else "JAPAN"
     gu_path = Path(game_path) / "SAVE" / folder / "ground_units.json"
     if not gu_path.exists():
@@ -1221,8 +1241,20 @@ def _load_ground_units_for_target(
     except (OSError, ValueError):
         return []
     records = _extract_list_of_objects(payload) or []
+    base_name_by_coords: dict[tuple[int, int], str] = {}
+    for base in _load_base_records_for_side(side, game_path):
+        bx = _to_int(base.get("x"))
+        by = _to_int(base.get("y"))
+        bname = str(base.get("name") or "").strip()
+        if bx is None or by is None or not bname:
+            continue
+        base_name_by_coords[(bx, by)] = bname
+
     norm_target = _normalize_lookup_name(target_base_name)
     results: list[dict[str, Any]] = []
+    tf_ids = tf_ids or set()
+    tf_ship_ids = tf_ship_ids or set()
+    tf_ship_names = tf_ship_names or set()
     for unit in records:
         destination_x = _to_int(unit.get("destination_x"))
         destination_y = _to_int(unit.get("destination_y"))
@@ -1230,21 +1262,37 @@ def _load_ground_units_for_target(
         prep_target_id = _to_int(unit.get("prep_target_id"))
         prep_target_x = _to_int(unit.get("prep_target_x"))
         prep_target_y = _to_int(unit.get("prep_target_y"))
+        task_force_id = _to_int(unit.get("task_force_id"))
+        loaded_ship_id = _to_int(unit.get("loaded_on_ship_id"))
+        loaded_ship_name = str(unit.get("loaded_on_ship_name") or "").strip()
 
         matches_target = False
+        if task_force_id is not None and task_force_id in tf_ids:
+            matches_target = True
+
+        # Include units explicitly loaded on ships in TFs already heading to this target.
+        if (loaded_ship_id is not None and loaded_ship_id in tf_ship_ids) or (
+            loaded_ship_name and loaded_ship_name in tf_ship_names
+        ):
+            matches_target = True
+
         # Primary rule: card target is the destination to match against.
         if (
+            not matches_target
+            and
             target_x is not None
             and target_y is not None
             and destination_x == target_x
             and destination_y == target_y
         ):
             matches_target = True
-        elif prep_target and _normalize_lookup_name(prep_target) == norm_target:
+        elif not matches_target and prep_target and _normalize_lookup_name(prep_target) == norm_target:
             matches_target = True
-        elif target_base_id is not None and prep_target_id == target_base_id:
+        elif not matches_target and target_base_id is not None and prep_target_id == target_base_id:
             matches_target = True
         elif (
+            not matches_target
+            and
             target_x is not None
             and target_y is not None
             and prep_target_x == target_x
@@ -1261,8 +1309,19 @@ def _load_ground_units_for_target(
         start_y = _to_int(unit.get("start_of_day_y"))
         current_x = eod_x if eod_x is not None else start_x
         current_y = eod_y if eod_y is not None else start_y
+        current_base_name = ""
+        if current_x is not None and current_y is not None:
+            current_base_name = base_name_by_coords.get((current_x, current_y), "")
 
-        location_label = _ground_unit_location_label(unit, target_x, target_y, current_x, current_y)
+        location_label = _ground_unit_location_label(
+            unit,
+            target_base_name,
+            target_x,
+            target_y,
+            current_x,
+            current_y,
+            current_base_name,
+        )
 
         results.append({
             "unit_type": str(unit.get("unit_type_name") or ""),
@@ -1294,6 +1353,58 @@ def _load_ships_by_tf_id(side: str, game_path: str) -> dict[int, list[dict[str, 
             continue
         index.setdefault(tf_id, []).append(ship)
     return index
+
+
+def _load_ground_units_from_tf_ships(
+    task_forces: list[dict[str, Any]],
+    ships_by_tf: dict[int, list[dict[str, Any]]],
+    target_x: int | None,
+    target_y: int | None,
+) -> list[dict[str, Any]]:
+    """Fallback unit list from ship cargo fields for TFs headed to the target."""
+    results: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
+
+    for tf in task_forces:
+        tf_id = _to_int(tf.get("record_id"))
+        if tf_id is None:
+            continue
+        for ship in ships_by_tf.get(tf_id, []):
+            unit_name = str(ship.get("loaded_ground_unit_name") or "").strip()
+            unit_id = _to_int(ship.get("loaded_ground_unit_id"))
+            if not unit_name and unit_id is None:
+                continue
+
+            ship_name = str(ship.get("name") or "").strip()
+            ship_x = _to_int(ship.get("x"))
+            ship_y = _to_int(ship.get("y"))
+
+            location = f"Task Force ({ship_name})" if ship_name else "Task Force"
+            if (
+                target_x is not None
+                and target_y is not None
+                and ship_x is not None
+                and ship_y is not None
+            ):
+                distance = math.ceil(_hex_distance(ship_x, ship_y, target_x, target_y))
+                location = f"{location} ({distance} hex)"
+
+            display_name = unit_name or f"Loaded Unit #{unit_id}"
+            dedupe_key = (display_name, location)
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+
+            results.append({
+                "unit_type": "",
+                "name": display_name,
+                "location": location,
+                "location_x": ship_x,
+                "location_y": ship_y,
+                "prep_percent": 0,
+            })
+
+    return results
 
 
 def _airgroup_location_label(ag: dict[str, Any], ship_to_flagship: dict[int, str] | None = None) -> str:
@@ -1433,20 +1544,55 @@ def _build_operations_view(side: str, game_path: str) -> dict[str, Any]:
 
             # Collect ship IDs in those TFs (for airgroup lookup)
             tf_ship_ids: set[int] = set()
+            tf_ship_names: set[str] = set()
+            tf_ids: set[int] = set()
             ship_to_flagship: dict[int, str] = {}
             for tf in task_forces:
                 tf_id = tf.get("record_id")
                 flagship = tf.get("flagship", "")
                 if tf_id is not None:
+                    tf_ids.add(tf_id)
                     for ship in ships_by_tf.get(tf_id, []):
                         sid = _to_int(ship.get("record_id"))
+                        sname = str(ship.get("name") or "").strip()
                         if sid is not None:
                             tf_ship_ids.add(sid)
                             if flagship:
                                 ship_to_flagship[sid] = flagship
+                        if sname:
+                            tf_ship_names.add(sname)
 
             # Ground units
-            ground_units = _load_ground_units_for_target(side, game_path, target_name, target_x, target_y, target_base_id)
+            ground_units = _load_ground_units_for_target(
+                side,
+                game_path,
+                target_name,
+                target_x,
+                target_y,
+                target_base_id,
+                tf_ids,
+                tf_ship_ids,
+                tf_ship_names,
+            )
+            loaded_units_from_ships = _load_ground_units_from_tf_ships(task_forces, ships_by_tf, target_x, target_y)
+            if loaded_units_from_ships:
+                seen_ground = {
+                    (
+                        str(gu.get("name") or "").strip().casefold(),
+                        str(gu.get("location") or "").strip().casefold(),
+                    )
+                    for gu in ground_units
+                }
+                for loaded_unit in loaded_units_from_ships:
+                    key = (
+                        str(loaded_unit.get("name") or "").strip().casefold(),
+                        str(loaded_unit.get("location") or "").strip().casefold(),
+                    )
+                    if key in seen_ground:
+                        continue
+                    ground_units.append(loaded_unit)
+                    seen_ground.add(key)
+                ground_units.sort(key=lambda r: (-int(r.get("prep_percent", 0) or 0), str(r.get("name") or "")))
 
             # Air groups (defense only for now, but built for both so template can decide)
             air_groups: list[dict[str, Any]] = []
