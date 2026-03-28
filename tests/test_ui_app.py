@@ -1911,6 +1911,7 @@ class UITests(unittest.TestCase):
                             "y": 53,
                             "loaded_ground_unit_id": 9001,
                             "loaded_ground_unit_name": "Split Infantry",
+                            "loaded_ground_unit_type_name": "INF",
                         }
                     ]
                 ),
@@ -1929,7 +1930,57 @@ class UITests(unittest.TestCase):
             card = offense_folder["cards"][0]
             self.assertEqual(len(card["ground_units"]), 1)
             self.assertEqual(card["ground_units"][0]["name"], "Split Infantry")
+            self.assertEqual(card["ground_units"][0]["unit_type"], "INF")
             self.assertIn("Task Force (Tasker H. Bliss)", card["ground_units"][0]["location"])
+
+    def test_operations_air_group_type_falls_back_to_aircraft_type_name(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            game_dir, allied_dir = self._make_ops_dir(tmp_dir)
+            self._set_runtime_env(game_dir)
+
+            (allied_dir / "bases.json").write_text(
+                json.dumps(
+                    {
+                        "records": [
+                            {"record_id": 600, "name": "Port Moresby", "nation": "USARMY", "x": 70, "y": 100},
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            (allied_dir / "taskforces.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ships.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "ground_units.json").write_text(json.dumps([]), encoding="utf-8")
+            (allied_dir / "airgroups.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "record_id": 501,
+                            "name": "VMF-121",
+                            "aircraft_name": "",
+                            "aircraft_type_name": "FTR",
+                            "is_rebasing": True,
+                            "rebase_target_base_name": "Port Moresby",
+                            "rebase_target_x": 70,
+                            "rebase_target_y": 100,
+                            "x": 51,
+                            "y": 85,
+                        }
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            self.client.post(
+                "/api/operations",
+                json={"name": "Defend PM", "mode": "defense", "planned_date": "", "target_base_name": "Port Moresby"},
+            )
+
+            view = self.client.get("/api/operations").json()
+            defense_folder = next(f for f in view["folders"] if f["mode"] == "defense")
+            card = defense_folder["cards"][0]
+            self.assertEqual(len(card["air_groups"]), 1)
+            self.assertEqual(card["air_groups"][0]["aircraft_type"], "FTR")
 
     def test_operations_ground_unit_location_uses_true_coords_when_destination_base_differs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

@@ -1396,7 +1396,7 @@ def _load_ground_units_from_tf_ships(
             seen_keys.add(dedupe_key)
 
             results.append({
-                "unit_type": "",
+                "unit_type": str(ship.get("loaded_ground_unit_type_name") or ""),
                 "name": display_name,
                 "location": location,
                 "location_x": ship_x,
@@ -1494,7 +1494,11 @@ def _load_airgroups_for_defense_target(
 
         results.append({
             "name": str(ag.get("name") or ""),
-            "aircraft_type": str(ag.get("aircraft_name") or ag.get("aircraft_type_name") or ""),
+            "aircraft_type": str(
+                ag.get("aircraft_name")
+                or ag.get("aircraft_type_name")
+                or (f"Aircraft #{_to_int(ag.get('aircraft_id'))}" if _to_int(ag.get("aircraft_id")) is not None else "")
+            ),
             "location": _airgroup_location_label(ag, ship_to_flagship),
             "source": source,
         })
